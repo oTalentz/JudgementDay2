@@ -1,0 +1,116 @@
+# JudgementDay - Sistema de Punições
+# Configuração principal
+
+# Motivos de punição
+motivos:
+  warn:
+    - 'Flood'
+    - 'Spam'
+    - 'Ofensa leve'
+    - 'Capslock'
+  mute:
+    - 'Ofensa grave'
+    - 'Divulgação'
+    - 'Provocação'
+    - 'Racismo'
+  ban:
+    - 'Hack'
+    - 'Ameaça'
+    - 'Comportamento tóxico'
+    - 'Evasão de punição'
+
+# Tempos de punição (em minutos)
+# Use -1 para punições permanentes
+tempos:
+  warn:
+    Flood:
+      1: 30    # 30 minutos na primeira ocorrência
+      2: 60    # 1 hora na segunda ocorrência
+      3: 120   # 2 horas na terceira ocorrência
+
+    Spam:
+      1: 30
+      2: 60
+      3: 120
+
+    Ofensa leve:
+      1: 60
+      2: 120
+      3: 240
+
+    Capslock:
+      1: 15
+      2: 30
+      3: 60
+
+  mute:
+    Ofensa grave:
+      1: 120    # 2 horas
+      2: 720    # 12 horas
+      3: 1440   # 24 horas (1 dia)
+
+    Divulgação:
+      1: 240     # 4 horas
+      2: 1440    # 24 horas (1 dia)
+      3: 10080   # 7 dias
+
+    Provocação:
+      1: 120     # 2 horas
+      2: 360     # 6 horas
+      3: 1440    # 24 horas (1 dia)
+
+    Racismo:
+      1: 1440    # 24 horas (1 dia)
+      2: 4320    # 3 dias
+      3: 10080   # 7 dias
+
+  ban:
+    Hack:
+      1: 10080    # 7 dias
+      2: 43200    # 30 dias
+      3: -1       # Permanente
+
+    Ameaça:
+      1: 1440     # 24 horas (1 dia)
+      2: 10080    # 7 dias
+      3: 43200    # 30 dias
+
+    Comportamento tóxico:
+      1: 4320     # 3 dias
+      2: 10080    # 7 dias
+      3: 43200    # 30 dias
+
+    Evasão de punição:
+      1: 4320     # 3 dias
+      2: 10080    # 7 dias
+      3: -1       # Permanente
+
+# Opções adicionais
+opcoes:
+  # Enviar mensagem de punição para todos os jogadores
+  broadcast-punicoes: true
+
+  # Verificação automática de punições expiradas
+  verificar-expiracoes: true
+
+  # Intervalo de verificação de punições expiradas (em minutos)
+  intervalo-verificacao: 5
+
+  # Templates para links de prova
+  templates-provas:
+    screenshot: "https://imgur.com/"
+    video: "https://youtu.be/"
+    discord: "https://discord.com/channels/"
+
+# Configurações de mensagens
+mensagens:
+  prefix: '&4[&cJudgementDay&4] &r'
+  sem_permissao: '&cVocê não tem permissão para usar este comando.'
+  jogador_nao_encontrado: '&cJogador não encontrado.'
+  punido_sucesso: '&aPunição aplicada com sucesso.'
+  revogado_sucesso: '&aPunição revogada com sucesso.'
+  id_invalido: '&cID de punição inválido.'
+  punir_uso: '&cUso: /punir <jogador>'
+  revogar_uso: '&cUso: /revogar <ID>'
+  historico_uso: '&cUso: /historico <jogador>'
+  reportar_uso: '&cUso: /reportar <jogador> <motivo>'

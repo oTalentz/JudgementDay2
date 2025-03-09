@@ -1,4 +1,4 @@
-package com.JudgementDay;
+package br.com.judgementday;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -6,7 +6,6 @@ import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
-import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
@@ -25,1260 +24,1234 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
-public class JudgementDay extends JavaPlugin implements Listener, CommandExecutor {
+public class JudgementDay extends JavaPlugin implements Listener {
 
-    private File punicoesFile;
-    private FileConfiguration punicoesConfig;
-    private File configFile;
-    private FileConfiguration config;
-    private File reportsFile;
-    private FileConfiguration reportsConfig;
+    private FileConfiguration playerData;
+    private File playerDataFile;
+    private FileConfiguration punishmentData;
+    private File punishmentDataFile;
+    private FileConfiguration reportData;
+    private File reportDataFile;
 
-    private final Map<UUID, String> aguardandoLink = new ConcurrentHashMap<>();
-    private final Map<UUID, PunicaoTemporaria> jogadoresComPunicaoAtiva = new ConcurrentHashMap<>();
-    private final Map<String, String> motivoInventoryMap = new ConcurrentHashMap<>();
+    private final Map<UUID, String> awaitingProofLinks = new ConcurrentHashMap<>();
+    private final Map<UUID, Map<String, Object>> pendingPunishments = new ConcurrentHashMap<>();
+    private final AtomicInteger punishmentIdCounter = new AtomicInteger(1);
 
-    private final SimpleDateFormat dateFormat = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss");
+    private final Map<String, List<String>> punishmentReasons = new HashMap<>();
+    private final Map<String, Map<String, Map<Integer, Long>>> punishmentTimes = new HashMap<>();
 
-    // Prefixo do plugin
-    private final String prefix = ChatColor.DARK_RED + "[" + ChatColor.RED + "JudgementDay" + ChatColor.DARK_RED + "] ";
-
-    // Tempo em ticks para verificar punições expiradas (1 minuto = 1200 ticks)
-    private final long VERIFICACAO_PUNICOES_INTERVAL = 1200L;
+    private static final String PREFIX = ChatColor.DARK_RED + "[" + ChatColor.RED + "JudgementDay" + ChatColor.DARK_RED + "] " + ChatColor.RESET;
 
     @Override
     public void onEnable() {
-        // Registra eventos
+        // Registrando eventos
         getServer().getPluginManager().registerEvents(this, this);
 
-        // Registra comandos
-        getCommand("punir").setExecutor(this);
-        getCommand("historico").setExecutor(this);
-        getCommand("despunir").setExecutor(this);
-        getCommand("reportar").setExecutor(this);
-        getCommand("reports").setExecutor(this);
+        // Comandos
+        getCommand("punir").setExecutor(new PunirCommand());
+        getCommand("revogar").setExecutor(new RevogarCommand());
+        getCommand("historico").setExecutor(new HistoricoCommand());
+        getCommand("reportar").setExecutor(new ReportarCommand());
+        getCommand("reports").setExecutor(new ReportsCommand());
 
-        // Inicializa arquivos de configuração
-        setupFiles();
+        // Carregando configurações
+        saveDefaultConfig();
+        setupPunishmentReasons();
 
-        // Carrega configurações iniciais
-        carregarConfiguracoes();
+        // Configurando arquivos de dados
+        setupPlayerData();
+        setupPunishmentData();
+        setupReportData();
 
-        // Carrega punições ativas
-        carregarPunicoesAtivas();
+        // Inicializando contador de IDs de punição
+        initializePunishmentIdCounter();
 
-        // Inicia verificador de punições
-        iniciarVerificadorPunicoes();
-
-        getLogger().info("Plugin JudgementDay ativado com sucesso!");
+        getLogger().info("JudgementDay ativado com sucesso!");
     }
 
     @Override
     public void onDisable() {
-        salvarDados();
-        getLogger().info("Plugin JudgementDay desativado.");
+        savePunishmentData();
+        savePlayerData();
+        saveReportData();
+        getLogger().info("JudgementDay desativado com sucesso!");
     }
 
-    private void setupFiles() {
-        // Arquivo de configuração principal
-        if (!getDataFolder().exists()) {
-            getDataFolder().mkdir();
+    private void setupPunishmentReasons() {
+        // Configuração padrão de motivos de punição
+        if (!getConfig().contains("motivos")) {
+            List<String> warnReasons = Arrays.asList("Flood", "Spam", "Ofensa leve", "Capslock");
+            List<String> muteReasons = Arrays.asList("Ofensa grave", "Divulgação", "Provocação", "Racismo");
+            List<String> banReasons = Arrays.asList("Hack", "Ameaça", "Comportamento tóxico", "Evasão de punição");
+
+            getConfig().set("motivos.warn", warnReasons);
+            getConfig().set("motivos.mute", muteReasons);
+            getConfig().set("motivos.ban", banReasons);
+
+            // Tempos padrão para cada tipo e nível de punição (em minutos)
+            setupDefaultPunishmentTimes();
+
+            saveConfig();
         }
 
-        configFile = new File(getDataFolder(), "config.yml");
-        if (!configFile.exists()) {
-            saveResource("config.yml", false);
-        }
-        config = YamlConfiguration.loadConfiguration(configFile);
+        // Carregando motivos e tempos de punição
+        loadPunishmentReasonsAndTimes();
+    }
 
-        // Arquivo de punições
-        punicoesFile = new File(getDataFolder(), "punicoes.yml");
-        if (!punicoesFile.exists()) {
+    private void setupDefaultPunishmentTimes() {
+        // Warn - tempos em minutos
+        getConfig().set("tempos.warn.Flood.1", 30);
+        getConfig().set("tempos.warn.Flood.2", 60);
+        getConfig().set("tempos.warn.Flood.3", 120);
+
+        getConfig().set("tempos.warn.Spam.1", 30);
+        getConfig().set("tempos.warn.Spam.2", 60);
+        getConfig().set("tempos.warn.Spam.3", 120);
+
+        getConfig().set("tempos.warn.Ofensa leve.1", 60);
+        getConfig().set("tempos.warn.Ofensa leve.2", 120);
+        getConfig().set("tempos.warn.Ofensa leve.3", 240);
+
+        getConfig().set("tempos.warn.Capslock.1", 15);
+        getConfig().set("tempos.warn.Capslock.2", 30);
+        getConfig().set("tempos.warn.Capslock.3", 60);
+
+        // Mute - tempos em minutos
+        getConfig().set("tempos.mute.Ofensa grave.1", 120);
+        getConfig().set("tempos.mute.Ofensa grave.2", 720);
+        getConfig().set("tempos.mute.Ofensa grave.3", 1440);
+
+        getConfig().set("tempos.mute.Divulgação.1", 240);
+        getConfig().set("tempos.mute.Divulgação.2", 1440);
+        getConfig().set("tempos.mute.Divulgação.3", 10080);
+
+        getConfig().set("tempos.mute.Provocação.1", 120);
+        getConfig().set("tempos.mute.Provocação.2", 360);
+        getConfig().set("tempos.mute.Provocação.3", 1440);
+
+        getConfig().set("tempos.mute.Racismo.1", 1440);
+        getConfig().set("tempos.mute.Racismo.2", 4320);
+        getConfig().set("tempos.mute.Racismo.3", 10080);
+
+        // Ban - tempos em minutos
+        getConfig().set("tempos.ban.Hack.1", 10080);
+        getConfig().set("tempos.ban.Hack.2", 43200);
+        getConfig().set("tempos.ban.Hack.3", -1); // Permanente
+
+        getConfig().set("tempos.ban.Ameaça.1", 1440);
+        getConfig().set("tempos.ban.Ameaça.2", 10080);
+        getConfig().set("tempos.ban.Ameaça.3", 43200);
+
+        getConfig().set("tempos.ban.Comportamento tóxico.1", 4320);
+        getConfig().set("tempos.ban.Comportamento tóxico.2", 10080);
+        getConfig().set("tempos.ban.Comportamento tóxico.3", 43200);
+
+        getConfig().set("tempos.ban.Evasão de punição.1", 4320);
+        getConfig().set("tempos.ban.Evasão de punição.2", 10080);
+        getConfig().set("tempos.ban.Evasão de punição.3", -1); // Permanente
+    }
+
+    private void loadPunishmentReasonsAndTimes() {
+        punishmentReasons.clear();
+        punishmentTimes.clear();
+
+        // Carregando motivos
+        for (String type : Arrays.asList("warn", "mute", "ban")) {
+            List<String> reasons = getConfig().getStringList("motivos." + type);
+            punishmentReasons.put(type, reasons);
+
+            // Carregando tempos
+            Map<String, Map<Integer, Long>> typeTimesMap = new HashMap<>();
+            for (String reason : reasons) {
+                Map<Integer, Long> levelTimesMap = new HashMap<>();
+                for (int level = 1; level <= 3; level++) {
+                    long minutes = getConfig().getLong("tempos." + type + "." + reason + "." + level, 60);
+                    levelTimesMap.put(level, minutes * 60 * 1000); // Convertendo para milissegundos
+                }
+                typeTimesMap.put(reason, levelTimesMap);
+            }
+            punishmentTimes.put(type, typeTimesMap);
+        }
+    }
+
+    private void setupPlayerData() {
+        playerDataFile = new File(getDataFolder(), "playerdata.yml");
+        if (!playerDataFile.exists()) {
             try {
-                punicoesFile.createNewFile();
+                playerDataFile.getParentFile().mkdirs();
+                playerDataFile.createNewFile();
             } catch (IOException e) {
+                getLogger().severe("Não foi possível criar o arquivo playerdata.yml");
                 e.printStackTrace();
             }
         }
-        punicoesConfig = YamlConfiguration.loadConfiguration(punicoesFile);
+        playerData = YamlConfiguration.loadConfiguration(playerDataFile);
+    }
 
-        // Arquivo de reports
-        reportsFile = new File(getDataFolder(), "reports.yml");
-        if (!reportsFile.exists()) {
+    private void setupPunishmentData() {
+        punishmentDataFile = new File(getDataFolder(), "punishments.yml");
+        if (!punishmentDataFile.exists()) {
             try {
-                reportsFile.createNewFile();
+                punishmentDataFile.getParentFile().mkdirs();
+                punishmentDataFile.createNewFile();
             } catch (IOException e) {
+                getLogger().severe("Não foi possível criar o arquivo punishments.yml");
                 e.printStackTrace();
             }
         }
-        reportsConfig = YamlConfiguration.loadConfiguration(reportsFile);
-
-        // Se o arquivo config.yml estiver vazio, cria configurações padrão
-        if (config.getConfigurationSection("motivos") == null) {
-            criarConfigPadrao();
-        }
+        punishmentData = YamlConfiguration.loadConfiguration(punishmentDataFile);
     }
 
-    private void criarConfigPadrao() {
-        // Configuração para punições do tipo "Warn"
-        config.set("motivos.ofensa.tipo", "WARN");
-        config.set("motivos.ofensa.niveis.1.tempo", "2h");
-        config.set("motivos.ofensa.niveis.1.descricao", "Primeira ofensa");
-        config.set("motivos.ofensa.niveis.2.tempo", "12h");
-        config.set("motivos.ofensa.niveis.2.descricao", "Segunda ofensa");
-        config.set("motivos.ofensa.niveis.3.tempo", "24h");
-        config.set("motivos.ofensa.niveis.3.descricao", "Terceira ofensa");
+    private void setupReportData() {
+        reportDataFile = new File(getDataFolder(), "reports.yml");
+        if (!reportDataFile.exists()) {
+            try {
+                reportDataFile.getParentFile().mkdirs();
+                reportDataFile.createNewFile();
+            } catch (IOException e) {
+                getLogger().severe("Não foi possível criar o arquivo reports.yml");
+                e.printStackTrace();
+            }
+        }
+        reportData = YamlConfiguration.loadConfiguration(reportDataFile);
+    }
 
-        // Configuração para punições do tipo "Mute"
-        config.set("motivos.spam.tipo", "MUTE");
-        config.set("motivos.spam.niveis.1.tempo", "30m");
-        config.set("motivos.spam.niveis.1.descricao", "Primeiro spam");
-        config.set("motivos.spam.niveis.2.tempo", "2h");
-        config.set("motivos.spam.niveis.2.descricao", "Segundo spam");
-        config.set("motivos.spam.niveis.3.tempo", "12h");
-        config.set("motivos.spam.niveis.3.descricao", "Terceiro spam");
-
-        config.set("motivos.publicidade.tipo", "MUTE");
-        config.set("motivos.publicidade.niveis.1.tempo", "12h");
-        config.set("motivos.publicidade.niveis.1.descricao", "Primeira publicidade");
-        config.set("motivos.publicidade.niveis.2.tempo", "2d");
-        config.set("motivos.publicidade.niveis.2.descricao", "Segunda publicidade");
-        config.set("motivos.publicidade.niveis.3.tempo", "7d");
-        config.set("motivos.publicidade.niveis.3.descricao", "Terceira publicidade");
-
-        // Configuração para punições do tipo "Ban"
-        config.set("motivos.hack.tipo", "BAN");
-        config.set("motivos.hack.niveis.1.tempo", "7d");
-        config.set("motivos.hack.niveis.1.descricao", "Primeiro uso de hack");
-        config.set("motivos.hack.niveis.2.tempo", "30d");
-        config.set("motivos.hack.niveis.2.descricao", "Segundo uso de hack");
-        config.set("motivos.hack.niveis.3.tempo", "PERMANENTE");
-        config.set("motivos.hack.niveis.3.descricao", "Terceiro uso de hack");
-
-        config.set("motivos.abuso.tipo", "BAN");
-        config.set("motivos.abuso.niveis.1.tempo", "3d");
-        config.set("motivos.abuso.niveis.1.descricao", "Primeiro abuso de bugs");
-        config.set("motivos.abuso.niveis.2.tempo", "15d");
-        config.set("motivos.abuso.niveis.2.descricao", "Segundo abuso de bugs");
-        config.set("motivos.abuso.niveis.3.tempo", "30d");
-        config.set("motivos.abuso.niveis.3.descricao", "Terceiro abuso de bugs");
-
+    private void savePlayerData() {
         try {
-            config.save(configFile);
+            playerData.save(playerDataFile);
         } catch (IOException e) {
+            getLogger().severe("Não foi possível salvar o arquivo playerdata.yml");
             e.printStackTrace();
         }
     }
 
-    private void carregarConfiguracoes() {
-        // Este método pode ser expandido no futuro para carregar outras configurações
+    private void savePunishmentData() {
+        try {
+            punishmentData.save(punishmentDataFile);
+        } catch (IOException e) {
+            getLogger().severe("Não foi possível salvar o arquivo punishments.yml");
+            e.printStackTrace();
+        }
     }
 
-    private void carregarPunicoesAtivas() {
-        jogadoresComPunicaoAtiva.clear();
+    private void saveReportData() {
+        try {
+            reportData.save(reportDataFile);
+        } catch (IOException e) {
+            getLogger().severe("Não foi possível salvar o arquivo reports.yml");
+            e.printStackTrace();
+        }
+    }
 
-        for (String uuidStr : punicoesConfig.getKeys(false)) {
-            ConfigurationSection playerSection = punicoesConfig.getConfigurationSection(uuidStr);
+    private void initializePunishmentIdCounter() {
+        int maxId = 0;
+        if (punishmentData.contains("punishments")) {
+            if (punishmentData.getConfigurationSection("punishments") != null) {
+                for (String key : punishmentData.getConfigurationSection("punishments").getKeys(false)) {
+                    try {
+                        int id = Integer.parseInt(key);
+                        if (id > maxId) {
+                            maxId = id;
+                        }
+                    } catch (NumberFormatException ignored) {}
+                }
+            }
+        }
+        punishmentIdCounter.set(maxId + 1);
+    }
 
-            if (playerSection != null) {
-                UUID playerUUID = UUID.fromString(uuidStr);
-                ConfigurationSection punicoesSection = playerSection.getConfigurationSection("punicoes");
+    // Método para obter o próximo ID de punição disponível
+    private int getNextPunishmentId() {
+        return punishmentIdCounter.getAndIncrement();
+    }
 
-                if (punicoesSection != null) {
-                    for (String punicaoId : punicoesSection.getKeys(false)) {
-                        ConfigurationSection punicaoSection = punicoesSection.getConfigurationSection(punicaoId);
+    // Método para obter o nível de punição para um jogador e motivo
+    private int getPunishmentLevel(String playerName, String type, String reason) {
+        String playerKey = playerName.toLowerCase();
+        String path = "players." + playerKey + ".history." + type + "." + reason;
 
-                        if (punicaoSection != null && !punicaoSection.getBoolean("revogada")) {
-                            String tipo = punicaoSection.getString("tipo");
-                            long expiracao = punicaoSection.getLong("expiracao");
+        if (!playerData.contains(path)) {
+            return 1;
+        }
 
-                            // Verifica se a punição ainda está válida
-                            if (expiracao > System.currentTimeMillis() || expiracao == -1) {
-                                if ("MUTE".equals(tipo) || "BAN".equals(tipo)) {
-                                    jogadoresComPunicaoAtiva.put(playerUUID, new PunicaoTemporaria(
-                                            punicaoId,
-                                            tipo,
-                                            punicaoSection.getString("motivo"),
-                                            expiracao
-                                    ));
-                                }
+        List<?> history = playerData.getList(path);
+        return history == null ? 1 : history.size() + 1;
+    }
+
+    // Método para verificar se um jogador está banido
+    private boolean isPlayerBanned(String playerName) {
+        String playerKey = playerName.toLowerCase();
+        String path = "players." + playerKey + ".punishments.ban";
+
+        if (!playerData.contains(path)) {
+            return false;
+        }
+
+        List<Map<?, ?>> activeBans = playerData.getMapList(path);
+        if (activeBans.isEmpty()) {
+            return false;
+        }
+
+        // Verificar se existe algum ban ativo
+        long currentTime = System.currentTimeMillis();
+        for (Map<?, ?> ban : activeBans) {
+            long expiry = (long) ban.get("expiry");
+            boolean active = (boolean) ban.get("active");
+
+            if (active && (expiry > currentTime || expiry == -1)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Método para verificar se um jogador está silenciado
+    private boolean isPlayerMuted(String playerName) {
+        String playerKey = playerName.toLowerCase();
+        String path = "players." + playerKey + ".punishments.mute";
+
+        if (!playerData.contains(path)) {
+            return false;
+        }
+
+        List<Map<?, ?>> activeMutes = playerData.getMapList(path);
+        if (activeMutes.isEmpty()) {
+            return false;
+        }
+
+        // Verificar se existe algum mute ativo
+        long currentTime = System.currentTimeMillis();
+        for (Map<?, ?> mute : activeMutes) {
+            long expiry = (long) mute.get("expiry");
+            boolean active = (boolean) mute.get("active");
+
+            if (active && (expiry > currentTime || expiry == -1)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Método para adicionar uma punição
+    @SuppressWarnings("unchecked")
+    private void addPunishment(String playerName, String type, String reason, String punisherName, long duration, String proofLink) {
+        String playerKey = playerName.toLowerCase();
+
+        // Gerando ID único para a punição
+        int id = getNextPunishmentId();
+
+        // Registrando no histórico
+        String historyPath = "players." + playerKey + ".history." + type + "." + reason;
+        List<Map<String, Object>> history = (List<Map<String, Object>>) playerData.getList(historyPath, new ArrayList<>());
+
+        Map<String, Object> punishmentInfo = new HashMap<>();
+        punishmentInfo.put("id", id);
+        punishmentInfo.put("punisher", punisherName);
+        punishmentInfo.put("time", System.currentTimeMillis());
+        punishmentInfo.put("duration", duration);
+        punishmentInfo.put("proofLink", proofLink);
+
+        // Se não existir uma lista, criar uma nova
+        if (history == null) {
+            history = new ArrayList<>();
+        }
+
+        history.add(punishmentInfo);
+        playerData.set(historyPath, history);
+
+        // Registrando punição ativa
+        String activePath = "players." + playerKey + ".punishments." + type;
+        List<Map<String, Object>> activePunishments = (List<Map<String, Object>>) playerData.getList(activePath, new ArrayList<>());
+
+        Map<String, Object> activePunishment = new HashMap<>();
+        activePunishment.put("id", id);
+        activePunishment.put("reason", reason);
+        activePunishment.put("punisher", punisherName);
+        activePunishment.put("time", System.currentTimeMillis());
+        activePunishment.put("expiry", duration == -1 ? -1 : System.currentTimeMillis() + duration);
+        activePunishment.put("active", true);
+        activePunishment.put("proofLink", proofLink);
+
+        // Se não existir uma lista, criar uma nova
+        if (activePunishments == null) {
+            activePunishments = new ArrayList<>();
+        }
+
+        activePunishments.add(activePunishment);
+        playerData.set(activePath, activePunishments);
+
+        // Salvar também na lista global de punições por ID
+        Map<String, Object> globalPunishment = new HashMap<>();
+        globalPunishment.put("player", playerName);
+        globalPunishment.put("type", type);
+        globalPunishment.put("reason", reason);
+        globalPunishment.put("punisher", punisherName);
+        globalPunishment.put("time", System.currentTimeMillis());
+        globalPunishment.put("duration", duration);
+        globalPunishment.put("expiry", duration == -1 ? -1 : System.currentTimeMillis() + duration);
+        globalPunishment.put("active", true);
+        globalPunishment.put("proofLink", proofLink);
+
+        punishmentData.set("punishments." + id, globalPunishment);
+
+        // Salvando dados
+        savePlayerData();
+        savePunishmentData();
+
+        // Notificar o jogador se estiver online
+        Player target = Bukkit.getPlayer(playerName);
+        if (target != null) {
+            if (type.equals("ban")) {
+                // O jogador será desconectado automaticamente pelo evento de login
+                target.kickPlayer(formatPunishmentMessage(type, reason, punisherName, duration, id, proofLink));
+            } else {
+                target.sendMessage(PREFIX + formatPunishmentMessage(type, reason, punisherName, duration, id, proofLink));
+            }
+        }
+
+        // Broadcast da punição para staff
+        broadcastPunishment(playerName, type, reason, punisherName, duration, id);
+    }
+
+    // Método para revogar uma punição
+    @SuppressWarnings("unchecked")
+    private boolean revokePunishment(int id, String revokerName) {
+        if (!punishmentData.contains("punishments." + id)) {
+            return false;
+        }
+
+        Map<String, Object> punishment = (Map<String, Object>) punishmentData.get("punishments." + id);
+        if (punishment == null || !(boolean) punishment.get("active")) {
+            return false;
+        }
+
+        String playerName = (String) punishment.get("player");
+        String type = (String) punishment.get("type");
+        String playerKey = playerName.toLowerCase();
+
+        // Desativando a punição global
+        punishment.put("active", false);
+        punishment.put("revokedBy", revokerName);
+        punishment.put("revokedTime", System.currentTimeMillis());
+        punishmentData.set("punishments." + id, punishment);
+
+        // Desativando a punição no registro do jogador
+        String activePath = "players." + playerKey + ".punishments." + type;
+        List<Map<String, Object>> activePunishments = (List<Map<String, Object>>) playerData.getList(activePath);
+
+        if (activePunishments != null) {
+            for (Map<String, Object> activePunishment : activePunishments) {
+                if ((int) activePunishment.get("id") == id) {
+                    activePunishment.put("active", false);
+                    activePunishment.put("revokedBy", revokerName);
+                    activePunishment.put("revokedTime", System.currentTimeMillis());
+                    break;
+                }
+            }
+            playerData.set(activePath, activePunishments);
+        }
+
+        // Salvando dados
+        savePlayerData();
+        savePunishmentData();
+
+        // Broadcast da revogação
+        broadcastRevocation(playerName, type, (String) punishment.get("reason"), revokerName, id);
+
+        return true;
+    }
+
+    private String formatPunishmentMessage(String type, String reason, String punisher, long duration, int id, String proofLink) {
+        StringBuilder message = new StringBuilder();
+        message.append(ChatColor.RED).append("Você foi punido!\n");
+        message.append(ChatColor.GOLD).append("Tipo: ").append(ChatColor.WHITE).append(formatPunishmentType(type)).append("\n");
+        message.append(ChatColor.GOLD).append("Motivo: ").append(ChatColor.WHITE).append(reason).append("\n");
+        message.append(ChatColor.GOLD).append("Punido por: ").append(ChatColor.WHITE).append(punisher).append("\n");
+
+        if (duration > 0) {
+            message.append(ChatColor.GOLD).append("Duração: ").append(ChatColor.WHITE).append(formatDuration(duration)).append("\n");
+        } else if (duration == -1) {
+            message.append(ChatColor.GOLD).append("Duração: ").append(ChatColor.WHITE).append("Permanente").append("\n");
+        }
+
+        message.append(ChatColor.GOLD).append("ID da punição: ").append(ChatColor.WHITE).append(id).append("\n");
+        message.append(ChatColor.GOLD).append("Prova: ").append(ChatColor.AQUA).append(proofLink);
+
+        return message.toString();
+    }
+
+    private String formatPunishmentType(String type) {
+        switch (type.toLowerCase()) {
+            case "warn":
+                return "Advertência";
+            case "mute":
+                return "Silenciamento";
+            case "ban":
+                return "Banimento";
+            default:
+                return type;
+        }
+    }
+
+    private String formatDuration(long duration) {
+        long seconds = duration / 1000;
+        long minutes = seconds / 60;
+        long hours = minutes / 60;
+        long days = hours / 24;
+
+        if (days > 0) {
+            return days + " dia(s)";
+        } else if (hours > 0) {
+            return hours + " hora(s)";
+        } else if (minutes > 0) {
+            return minutes + " minuto(s)";
+        } else {
+            return seconds + " segundo(s)";
+        }
+    }
+
+    private void broadcastPunishment(String playerName, String type, String reason, String punisherName, long duration, int id) {
+        String message = PREFIX + ChatColor.RED + playerName + ChatColor.GOLD + " recebeu " +
+                formatPunishmentType(type) + ChatColor.GOLD + " por " + ChatColor.WHITE + reason +
+                ChatColor.GOLD + " (ID: " + ChatColor.WHITE + id + ChatColor.GOLD + ")";
+
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (player.hasPermission("judgementday.staff")) {
+                player.sendMessage(message);
+            }
+        }
+        getLogger().info(ChatColor.stripColor(message));
+    }
+
+    private void broadcastRevocation(String playerName, String type, String reason, String revokerName, int id) {
+        String message = PREFIX + ChatColor.GOLD + "A punição " + formatPunishmentType(type) +
+                ChatColor.GOLD + " do jogador " + ChatColor.RED + playerName +
+                ChatColor.GOLD + " foi revogada por " + ChatColor.GREEN + revokerName +
+                ChatColor.GOLD + " (ID: " + ChatColor.WHITE + id + ChatColor.GOLD + ")";
+
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (player.hasPermission("judgementday.staff")) {
+                player.sendMessage(message);
+            }
+        }
+        getLogger().info(ChatColor.stripColor(message));
+    }
+
+    // Método para abrir o menu de histórico de punições
+    private void openHistoryInventory(Player player, String targetPlayerName) {
+        String playerKey = targetPlayerName.toLowerCase();
+
+        // Lista para armazenar todas as punições
+        List<Map<String, Object>> allPunishments = new ArrayList<>();
+
+        // Verificar se o jogador tem histórico
+        if (playerData.contains("players." + playerKey + ".history")) {
+            // Obter todas as punições do histórico
+            for (String type : Arrays.asList("warn", "mute", "ban")) {
+                String typePath = "players." + playerKey + ".history." + type;
+                if (!playerData.contains(typePath)) {
+                    continue;
+                }
+
+                if (playerData.getConfigurationSection(typePath) != null) {
+                    for (String reason : playerData.getConfigurationSection(typePath).getKeys(false)) {
+                        List<Map<?, ?>> punishments = playerData.getMapList(typePath + "." + reason);
+
+                        for (Map<?, ?> punishmentMap : punishments) {
+                            Map<String, Object> punishment = new HashMap<>();
+                            punishment.put("id", punishmentMap.get("id"));
+                            punishment.put("type", type);
+                            punishment.put("reason", reason);
+                            punishment.put("punisher", punishmentMap.get("punisher"));
+                            punishment.put("time", punishmentMap.get("time"));
+                            punishment.put("duration", punishmentMap.get("duration"));
+                            punishment.put("proofLink", punishmentMap.get("proofLink"));
+
+                            if (punishmentMap.containsKey("revokedBy")) {
+                                punishment.put("revokedBy", punishmentMap.get("revokedBy"));
+                                punishment.put("revokedTime", punishmentMap.get("revokedTime"));
                             }
+
+                            allPunishments.add(punishment);
                         }
                     }
                 }
             }
         }
-    }
 
-    private void salvarDados() {
-        try {
-            punicoesConfig.save(punicoesFile);
-            reportsConfig.save(reportsFile);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void iniciarVerificadorPunicoes() {
-        Bukkit.getScheduler().runTaskTimerAsynchronously(this, () -> {
-            long tempoAtual = System.currentTimeMillis();
-
-            // Cria uma lista para evitar ConcurrentModificationException
-            List<UUID> punicoesParaRemover = new ArrayList<>();
-
-            for (Map.Entry<UUID, PunicaoTemporaria> entry : jogadoresComPunicaoAtiva.entrySet()) {
-                UUID uuid = entry.getKey();
-                PunicaoTemporaria punicao = entry.getValue();
-
-                // Verifica se a punição expirou
-                if (punicao.getExpiracao() != -1 && punicao.getExpiracao() <= tempoAtual) {
-                    punicoesParaRemover.add(uuid);
-
-                    // Atualiza o status da punição no arquivo
-                    String playerPath = uuid.toString() + ".punicoes." + punicao.getId() + ".expirou";
-                    punicoesConfig.set(playerPath, true);
-
-                    // Notifica o jogador se estiver online
-                    Player player = Bukkit.getPlayer(uuid);
-                    if (player != null && player.isOnline()) {
-                        Bukkit.getScheduler().runTask(this, () ->
-                                player.sendMessage(prefix + ChatColor.GREEN + "Sua punição por " + punicao.getMotivo() + " expirou!"));
-                    }
-                }
-            }
-
-            // Remove as punições expiradas
-            for (UUID uuid : punicoesParaRemover) {
-                jogadoresComPunicaoAtiva.remove(uuid);
-            }
-
-            if (!punicoesParaRemover.isEmpty()) {
-                try {
-                    punicoesConfig.save(punicoesFile);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        }, VERIFICACAO_PUNICOES_INTERVAL, VERIFICACAO_PUNICOES_INTERVAL);
-    }
-
-    @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        switch (command.getName().toLowerCase()) {
-            case "punir":
-                return handlePunirCommand(sender, args);
-            case "historico":
-                return handleHistoricoCommand(sender, args);
-            case "despunir":
-                return handleDespunirCommand(sender, args);
-            case "reportar":
-                return handleReportarCommand(sender, args);
-            case "reports":
-                return handleReportsCommand(sender);
-            default:
-                return false;
-        }
-    }
-
-    private boolean handlePunirCommand(CommandSender sender, String[] args) {
-        if (!sender.hasPermission("judgementday.punir")) {
-            sender.sendMessage(prefix + ChatColor.RED + "Você não tem permissão para usar este comando.");
-            return true;
-        }
-
-        if (args.length < 1) {
-            sender.sendMessage(prefix + ChatColor.RED + "Uso correto: /punir <jogador>");
-            return true;
-        }
-
-        String targetName = args[0];
-        UUID targetUUID = null;
-
-        // Tenta obter UUID do jogador
-        Player targetPlayer = Bukkit.getPlayer(targetName);
-        if (targetPlayer != null) {
-            targetUUID = targetPlayer.getUniqueId();
-        } else {
-            // Se o jogador não estiver online, tenta obter UUID de jogador offline
-            for (String uuidStr : punicoesConfig.getKeys(false)) {
-                String storedName = punicoesConfig.getString(uuidStr + ".nome");
-                if (storedName != null && storedName.equalsIgnoreCase(targetName)) {
-                    targetUUID = UUID.fromString(uuidStr);
-                    break;
-                }
-            }
-
-            if (targetUUID == null) {
-                sender.sendMessage(prefix + ChatColor.RED + "Jogador não encontrado. Certifique-se que ele já jogou no servidor.");
-                return true;
-            }
-        }
-
-        if (sender instanceof Player) {
-            Player staffPlayer = (Player) sender;
-            exibirMenuMotivos(staffPlayer, targetUUID, targetName);
-        } else {
-            sender.sendMessage(prefix + ChatColor.RED + "Este comando só pode ser executado por um jogador.");
-        }
-
-        return true;
-    }
-
-    private void exibirMenuMotivos(Player staffPlayer, UUID targetUUID, String targetName) {
-        Inventory menu = Bukkit.createInventory(null, 27, ChatColor.RED + "Punir: " + targetName);
-
-        int slot = 0;
-        motivoInventoryMap.clear();
-
-        // Obter todas as configurações de motivos
-        ConfigurationSection motivosSection = config.getConfigurationSection("motivos");
-        if (motivosSection != null) {
-            for (String motivo : motivosSection.getKeys(false)) {
-                String tipo = motivosSection.getString(motivo + ".tipo", "WARN");
-                Material material;
-
-                // Define o material do item baseado no tipo de punição
-                switch (tipo) {
-                    case "WARN":
-                        material = Material.PAPER;
-                        break;
-                    case "MUTE":
-                        material = Material.BOOK;
-                        break;
-                    case "BAN":
-                        material = Material.BARRIER;
-                        break;
-                    default:
-                        material = Material.PAPER;
-                        break;
-                }
-
-                ItemStack item = new ItemStack(material);
-                ItemMeta meta = item.getItemMeta();
-                meta.setDisplayName(ChatColor.RED + formatarMotivo(motivo));
-
-                List<String> lore = new ArrayList<>();
-                lore.add(ChatColor.GRAY + "Tipo: " + ChatColor.GOLD + tipo);
-                lore.add("");
-
-                // Adiciona informações sobre níveis de punição
-                ConfigurationSection niveisSection = motivosSection.getConfigurationSection(motivo + ".niveis");
-                if (niveisSection != null) {
-                    for (String nivel : niveisSection.getKeys(false)) {
-                        String descricao = niveisSection.getString(nivel + ".descricao", "");
-                        String tempo = niveisSection.getString(nivel + ".tempo", "");
-                        lore.add(ChatColor.YELLOW + nivel + ". " + ChatColor.WHITE + descricao + " - " + ChatColor.AQUA + tempo);
-                    }
-                }
-
-                lore.add("");
-                lore.add(ChatColor.GREEN + "Clique para selecionar este motivo");
-
-                meta.setLore(lore);
-                item.setItemMeta(meta);
-
-                menu.setItem(slot, item);
-                motivoInventoryMap.put(material.name() + ":" + slot, motivo + ":" + targetUUID.toString() + ":" + targetName);
-
-                slot++;
-                if (slot >= 27) break; // Limite de 27 slots
-            }
-        }
-
-        staffPlayer.openInventory(menu);
-    }
-
-    private void exibirMenuNiveis(Player staffPlayer, String motivo, UUID targetUUID, String targetName) {
-        ConfigurationSection motivoSection = config.getConfigurationSection("motivos." + motivo);
-        if (motivoSection == null) {
-            staffPlayer.sendMessage(prefix + ChatColor.RED + "Configuração inválida para o motivo: " + motivo);
+        // Se não houver punições
+        if (allPunishments.isEmpty()) {
+            player.sendMessage(PREFIX + ChatColor.RED + "Nenhum histórico encontrado para " + targetPlayerName);
             return;
         }
 
-        String tipo = motivoSection.getString("tipo", "WARN");
-        ConfigurationSection niveisSection = motivoSection.getConfigurationSection("niveis");
+        // Ordenar punições (mais recentes primeiro)
+        allPunishments.sort((p1, p2) -> Long.compare((long) p2.get("time"), (long) p1.get("time")));
 
-        if (niveisSection == null) {
-            staffPlayer.sendMessage(prefix + ChatColor.RED + "Não há níveis configurados para este motivo.");
-            return;
-        }
+        // Calcular tamanho do inventário
+        int size = Math.min(54, ((allPunishments.size() + 8) / 9) * 9);
+        Inventory inventory = Bukkit.createInventory(null, size, ChatColor.RED + "Histórico: " + targetPlayerName);
 
-        // Calcula o tamanho necessário para o inventário (múltiplo de 9)
-        int niveisCount = niveisSection.getKeys(false).size();
-        int inventorySize = ((niveisCount - 1) / 9 + 1) * 9;
+        // Adicionar punições ao inventário
+        for (int i = 0; i < allPunishments.size() && i < size; i++) {
+            Map<String, Object> punishment = allPunishments.get(i);
 
-        Inventory menu = Bukkit.createInventory(null, inventorySize,
-                ChatColor.RED + "Nível: " + formatarMotivo(motivo));
-
-        int nivelAnterior = calcularNivelAnterior(targetUUID, motivo);
-        int proximoNivel = nivelAnterior + 1;
-
-        for (String nivel : niveisSection.getKeys(false)) {
-            int nivelInt = Integer.parseInt(nivel);
+            // Escolher material com base no tipo
             Material material;
+            ChatColor typeColor;
+            String type = (String) punishment.get("type");
 
-            // Define o material baseado no nível
-            if (nivelInt < proximoNivel) {
-                material = Material.STAINED_GLASS_PANE; // Cinza para níveis anteriores
-                // Dyed color 8 = cinza escuro
-            } else if (nivelInt == proximoNivel) {
-                material = Material.EMERALD; // Verde para o próximo nível
-            } else {
-                material = Material.REDSTONE; // Vermelho para níveis futuros
+            switch (type) {
+                case "warn":
+                    material = Material.PAPER;
+                    typeColor = ChatColor.YELLOW;
+                    break;
+                case "mute":
+                    material = Material.BOOK;
+                    typeColor = ChatColor.GOLD;
+                    break;
+                case "ban":
+                    material = Material.BARRIER;
+                    typeColor = ChatColor.RED;
+                    break;
+                default:
+                    material = Material.STONE;
+                    typeColor = ChatColor.WHITE;
             }
-
-            String descricao = niveisSection.getString(nivel + ".descricao", "");
-            String tempo = niveisSection.getString(nivel + ".tempo", "");
 
             ItemStack item = new ItemStack(material);
             ItemMeta meta = item.getItemMeta();
-            meta.setDisplayName(ChatColor.GOLD + "Nível " + nivel + ": " + ChatColor.WHITE + descricao);
 
+            // ID e tipo no nome
+            meta.setDisplayName(typeColor + formatPunishmentType(type) + ChatColor.GRAY + " #" + punishment.get("id"));
+
+            // Detalhes na lore
             List<String> lore = new ArrayList<>();
-            lore.add(ChatColor.GRAY + "Tipo: " + ChatColor.GOLD + tipo);
-            lore.add(ChatColor.GRAY + "Duração: " + ChatColor.AQUA + tempo);
+            lore.add(ChatColor.GOLD + "Motivo: " + ChatColor.WHITE + punishment.get("reason"));
+            lore.add(ChatColor.GOLD + "Punido por: " + ChatColor.WHITE + punishment.get("punisher"));
 
-            if (nivelInt < proximoNivel) {
-                lore.add(ChatColor.RED + "Jogador já recebeu esta punição");
-            } else if (nivelInt == proximoNivel) {
-                lore.add(ChatColor.GREEN + "Nível recomendado para este jogador");
-                lore.add(ChatColor.GREEN + "Clique para aplicar esta punição");
+            // Data
+            String dateFormat = new SimpleDateFormat("dd/MM/yyyy HH:mm").format(new Date((long) punishment.get("time")));
+            lore.add(ChatColor.GOLD + "Data: " + ChatColor.WHITE + dateFormat);
+
+            // Duração
+            long duration = (long) punishment.get("duration");
+            if (duration == -1) {
+                lore.add(ChatColor.GOLD + "Duração: " + ChatColor.WHITE + "Permanente");
             } else {
-                lore.add(ChatColor.YELLOW + "Nível futuro para este jogador");
-                lore.add(ChatColor.YELLOW + "Clique para aplicar esta punição");
+                lore.add(ChatColor.GOLD + "Duração: " + ChatColor.WHITE + formatDuration(duration));
             }
+
+            // Informações de revogação
+            if (punishment.containsKey("revokedBy")) {
+                String revoker = (String) punishment.get("revokedBy");
+                String revokeDate = new SimpleDateFormat("dd/MM/yyyy HH:mm").format(new Date((long) punishment.get("revokedTime")));
+
+                lore.add(ChatColor.RED + "REVOGADO");
+                lore.add(ChatColor.GOLD + "Revogado por: " + ChatColor.WHITE + revoker);
+                lore.add(ChatColor.GOLD + "Data da revogação: " + ChatColor.WHITE + revokeDate);
+            }
+
+            // Prova
+            lore.add(ChatColor.GOLD + "Prova: " + ChatColor.AQUA + punishment.get("proofLink"));
 
             meta.setLore(lore);
             item.setItemMeta(meta);
 
-            int slot = nivelInt - 1;
-            menu.setItem(slot, item);
-
-            // Armazena informações para o evento de clique
-            String mapKey = material.name() + ":" + slot;
-            String mapValue = motivo + ":" + targetUUID.toString() + ":" + targetName + ":" + nivel;
-            motivoInventoryMap.put(mapKey, mapValue);
+            inventory.setItem(i, item);
         }
 
-        staffPlayer.openInventory(menu);
+        player.openInventory(inventory);
     }
 
-    private int calcularNivelAnterior(UUID playerUUID, String motivo) {
-        int nivelAtual = 0;
-
-        // Verifica se o jogador tem configuração no arquivo de punições
-        if (punicoesConfig.contains(playerUUID.toString())) {
-            ConfigurationSection punicoesSection = punicoesConfig.getConfigurationSection(playerUUID.toString() + ".punicoes");
-
-            if (punicoesSection != null) {
-                // Conta quantas punições do mesmo motivo o jogador já recebeu
-                for (String punicaoId : punicoesSection.getKeys(false)) {
-                    String motivoPunicao = punicoesSection.getString(punicaoId + ".motivo", "");
-
-                    if (motivoPunicao.equals(motivo) && !punicoesSection.getBoolean(punicaoId + ".revogada", false)) {
-                        nivelAtual++;
-                    }
-                }
-            }
-        }
-
-        return nivelAtual;
-    }
-
-    @EventHandler
-    public void onInventoryClick(InventoryClickEvent event) {
-        if (!(event.getWhoClicked() instanceof Player)) return;
-
-        Player player = (Player) event.getWhoClicked();
-        String title = event.getView().getTitle();
-
-        // Verifica se é nosso inventário de punições
-        if (title.startsWith(ChatColor.RED + "Punir: ") || title.startsWith(ChatColor.RED + "Nível: ")) {
-            event.setCancelled(true); // Cancela o evento para evitar que o item seja movido
-
-            ItemStack clickedItem = event.getCurrentItem();
-            if (clickedItem == null || clickedItem.getType() == Material.AIR) return;
-
-            int slot = event.getSlot();
-            Material material = clickedItem.getType();
-            String mapKey = material.name() + ":" + slot;
-
-            if (motivoInventoryMap.containsKey(mapKey)) {
-                String[] dados = motivoInventoryMap.get(mapKey).split(":");
-
-                if (title.startsWith(ChatColor.RED + "Punir: ")) {
-                    // Menu de seleção de motivo
-                    String motivo = dados[0];
-                    UUID targetUUID = UUID.fromString(dados[1]);
-                    String targetName = dados[2];
-
-                    player.closeInventory();
-                    exibirMenuNiveis(player, motivo, targetUUID, targetName);
-                } else if (title.startsWith(ChatColor.RED + "Nível: ")) {
-                    // Menu de seleção de nível
-                    String motivo = dados[0];
-                    UUID targetUUID = UUID.fromString(dados[1]);
-                    String targetName = dados[2];
-                    String nivel = dados[3];
-
-                    player.closeInventory();
-
-                    // Armazena as informações para aguardar o link de prova
-                    String punicaoInfo = motivo + ":" + targetUUID.toString() + ":" + targetName + ":" + nivel;
-                    aguardandoLink.put(player.getUniqueId(), punicaoInfo);
-
-                    player.sendMessage(prefix + ChatColor.YELLOW + "Digite o link da prova para aplicar a punição:");
-                }
-            }
-        } else if (title.equals(ChatColor.RED + "Reports Pendentes")) {
-            event.setCancelled(true);
-
-            ItemStack clickedItem = event.getCurrentItem();
-            if (clickedItem == null || clickedItem.getType() == Material.AIR) return;
-
-            ItemMeta meta = clickedItem.getItemMeta();
-            if (meta != null && meta.hasLore()) {
-                List<String> lore = meta.getLore();
-                String reportedPlayer = "";
-                String reporter = "";
-
-                for (String line : lore) {
-                    if (line.startsWith(ChatColor.GRAY + "Reportado: ")) {
-                        reportedPlayer = ChatColor.stripColor(line.substring(line.indexOf(":") + 2));
-                    } else if (line.startsWith(ChatColor.GRAY + "Reportado por: ")) {
-                        reporter = ChatColor.stripColor(line.substring(line.indexOf(":") + 2));
-                    }
-                }
-
-                if (!reportedPlayer.isEmpty()) {
-                    player.closeInventory();
-
-                    // Executa o comando de punir para o jogador reportado
-                    Bukkit.dispatchCommand(player, "punir " + reportedPlayer);
-
-                    // Notifica o reporter que a equipe está analisando o report
-                    Player reporterPlayer = Bukkit.getPlayer(reporter);
-                    if (reporterPlayer != null && reporterPlayer.isOnline()) {
-                        reporterPlayer.sendMessage(prefix + ChatColor.GREEN + "Seu report contra " +
-                                ChatColor.YELLOW + reportedPlayer + ChatColor.GREEN + " está sendo analisado pela equipe.");
-                    }
-                }
-            }
-        }
-    }
-
-    @EventHandler
-    public void onPlayerChat(AsyncPlayerChatEvent event) {
-        Player player = event.getPlayer();
-        UUID playerUUID = player.getUniqueId();
-
-        // Verifica se o jogador está com Mute ativo
-        if (jogadoresComPunicaoAtiva.containsKey(playerUUID)) {
-            PunicaoTemporaria punicao = jogadoresComPunicaoAtiva.get(playerUUID);
-            if ("MUTE".equals(punicao.getTipo())) {
-                event.setCancelled(true);
-
-                long tempo = punicao.getExpiracao();
-                String tempoRestante = tempo == -1 ? "permanentemente" : "por " + formatarTempoRestante(tempo);
-
-                player.sendMessage(prefix + ChatColor.RED + "Você está silenciado " + tempoRestante + ".");
-                player.sendMessage(ChatColor.RED + "Motivo: " + ChatColor.YELLOW + punicao.getMotivo());
-                player.sendMessage(ChatColor.RED + "ID da punição: " + ChatColor.GRAY + punicao.getId());
-                return;
-            }
-        }
-
-        // Verifica se o staff está respondendo com um link para a punição
-        if (aguardandoLink.containsKey(playerUUID)) {
-            event.setCancelled(true);
-            String mensagem = event.getMessage();
-
-            // Verifica se parece um link
-            if (mensagem.startsWith("http://") || mensagem.startsWith("https://") || mensagem.contains("youtu") ||
-                    mensagem.contains("imgur") || mensagem.contains("discord") || mensagem.contains(".com") ||
-                    mensagem.contains(".net") || mensagem.contains(".org")) {
-
-                String punicaoInfo = aguardandoLink.get(playerUUID);
-                String[] dados = punicaoInfo.split(":");
-
-                String motivo = dados[0];
-                UUID targetUUID = UUID.fromString(dados[1]);
-                String targetName = dados[2];
-                String nivel = dados[3];
-
-                aplicarPunicao(player, targetUUID, targetName, motivo, Integer.parseInt(nivel), mensagem);
-                aguardandoLink.remove(playerUUID);
-            } else {
-                player.sendMessage(prefix + ChatColor.RED + "Por favor, forneça um link válido para a prova.");
-                player.sendMessage(prefix + ChatColor.YELLOW + "Digite o link da prova ou digite 'cancelar' para abortar:");
-
-                if (mensagem.equalsIgnoreCase("cancelar")) {
-                    aguardandoLink.remove(playerUUID);
-                    player.sendMessage(prefix + ChatColor.YELLOW + "Punição cancelada.");
-                }
-            }
-        }
-    }
-
-    private void aplicarPunicao(Player staffPlayer, UUID targetUUID, String targetName, String motivo, int nivel, String linkProva) {
-        ConfigurationSection motivoSection = config.getConfigurationSection("motivos." + motivo);
-        if (motivoSection == null) {
-            staffPlayer.sendMessage(prefix + ChatColor.RED + "Configuração inválida para o motivo: " + motivo);
-            return;
-        }
-
-        String tipo = motivoSection.getString("tipo", "WARN");
-        String tempoStr = motivoSection.getString("niveis." + nivel + ".tempo", "1h");
-        String descricao = motivoSection.getString("niveis." + nivel + ".descricao", "");
-
-        // Gera ID único para a punição
-        String punicaoId = gerarPunicaoId();
-
-        // Calcula o tempo de expiração
-        long expiracao = calcularExpiracao(tempoStr);
-
-        // Registra a punição no arquivo
-        String playerPath = targetUUID.toString();
-        punicoesConfig.set(playerPath + ".nome", targetName);
-        punicoesConfig.set(playerPath + ".punicoes." + punicaoId + ".tipo", tipo);
-        punicoesConfig.set(playerPath + ".punicoes." + punicaoId + ".motivo", motivo);
-        punicoesConfig.set(playerPath + ".punicoes." + punicaoId + ".descricao", descricao);
-        punicoesConfig.set(playerPath + ".punicoes." + punicaoId + ".nivel", nivel);
-        punicoesConfig.set(playerPath + ".punicoes." + punicaoId + ".tempo", tempoStr);
-        punicoesConfig.set(playerPath + ".punicoes." + punicaoId + ".expiracao", expiracao);
-        punicoesConfig.set(playerPath + ".punicoes." + punicaoId + ".data", System.currentTimeMillis());
-        punicoesConfig.set(playerPath + punicoesConfig.set(playerPath + ".punicoes." + punicaoId + ".staff", staffPlayer.getName());
-        punicoesConfig.set(playerPath + ".punicoes." + punicaoId + ".linkProva", linkProva);
-        punicoesConfig.set(playerPath + ".punicoes." + punicaoId + ".revogada", false);
-        punicoesConfig.set(playerPath + ".punicoes." + punicaoId + ".expirou", false);
-
-        try {
-            punicoesConfig.save(punicoesFile);
-        } catch (IOException e) {
-            e.printStackTrace();
-            staffPlayer.sendMessage(prefix + ChatColor.RED + "Erro ao salvar a punição. Veja o console para mais detalhes.");
-            return;
-        }
-
-        // Aplica a punição ao jogador
-        Player targetPlayer = Bukkit.getPlayer(targetUUID);
-
-        // Registra punição ativa para mute ou ban
-        if ("MUTE".equals(tipo) || "BAN".equals(tipo)) {
-            jogadoresComPunicaoAtiva.put(targetUUID, new PunicaoTemporaria(
-                    punicaoId,
-                    tipo,
-                    motivo,
-                    expiracao
-            ));
-        }
-
-        // Formata as mensagens de punição
-        String tempoFormatado = expiracao == -1 ? "PERMANENTE" : tempoStr;
-        String tempoFrase = expiracao == -1 ? "permanentemente" : "por " + tempoStr;
-
-        // Notifica o staff
-        staffPlayer.sendMessage("");
-        staffPlayer.sendMessage(prefix + ChatColor.GREEN + "Punição aplicada com sucesso!");
-        staffPlayer.sendMessage(ChatColor.WHITE + "Jogador: " + ChatColor.YELLOW + targetName);
-        staffPlayer.sendMessage(ChatColor.WHITE + "Tipo: " + ChatColor.GOLD + tipo);
-        staffPlayer.sendMessage(ChatColor.WHITE + "Motivo: " + ChatColor.YELLOW + formatarMotivo(motivo) + " (Nível " + nivel + ")");
-        staffPlayer.sendMessage(ChatColor.WHITE + "Tempo: " + ChatColor.AQUA + tempoFormatado);
-        staffPlayer.sendMessage(ChatColor.WHITE + "ID: " + ChatColor.GRAY + punicaoId);
-        staffPlayer.sendMessage("");
-
-        // Notifica o servidor
-        String mensagemServidor = prefix + ChatColor.YELLOW + targetName +
-                ChatColor.WHITE + " foi " + getTipoPunicaoEmPortugues(tipo) + " " + tempoFrase +
-                ChatColor.WHITE + " por " + ChatColor.YELLOW + formatarMotivo(motivo) +
-                ChatColor.WHITE + " (" + staffPlayer.getName() + ")";
-
-        for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
-            onlinePlayer.sendMessage(mensagemServidor);
-        }
-
-        // Executa ações específicas baseadas no tipo de punição
-        switch (tipo) {
-            case "WARN":
-                if (targetPlayer != null && targetPlayer.isOnline()) {
-                    targetPlayer.sendMessage("");
-                    targetPlayer.sendMessage(prefix + ChatColor.RED + "Você recebeu um aviso!");
-                    targetPlayer.sendMessage(ChatColor.WHITE + "Motivo: " + ChatColor.YELLOW + formatarMotivo(motivo));
-                    targetPlayer.sendMessage(ChatColor.WHITE + "Staff: " + ChatColor.YELLOW + staffPlayer.getName());
-                    targetPlayer.sendMessage(ChatColor.WHITE + "ID: " + ChatColor.GRAY + punicaoId);
-                    targetPlayer.sendMessage("");
-                }
-                break;
-
-            case "MUTE":
-                if (targetPlayer != null && targetPlayer.isOnline()) {
-                    targetPlayer.sendMessage("");
-                    targetPlayer.sendMessage(prefix + ChatColor.RED + "Você foi silenciado " + tempoFrase + "!");
-                    targetPlayer.sendMessage(ChatColor.WHITE + "Motivo: " + ChatColor.YELLOW + formatarMotivo(motivo));
-                    targetPlayer.sendMessage(ChatColor.WHITE + "Staff: " + ChatColor.YELLOW + staffPlayer.getName());
-                    targetPlayer.sendMessage(ChatColor.WHITE + "ID: " + ChatColor.GRAY + punicaoId);
-                    targetPlayer.sendMessage("");
-                }
-                break;
-
-            case "BAN":
-                // Se o jogador estiver online, desconecta-o com mensagem
-                if (targetPlayer != null && targetPlayer.isOnline()) {
-                    String banMessage =
-                            ChatColor.RED + "Você foi banido do servidor!\n\n" +
-                                    ChatColor.WHITE + "Motivo: " + ChatColor.YELLOW + formatarMotivo(motivo) + "\n" +
-                                    ChatColor.WHITE + "Duração: " + ChatColor.AQUA + tempoFormatado + "\n" +
-                                    ChatColor.WHITE + "Staff: " + ChatColor.YELLOW + staffPlayer.getName() + "\n" +
-                                    ChatColor.WHITE + "ID: " + ChatColor.GRAY + punicaoId + "\n\n" +
-                                    ChatColor.WHITE + "Para contestar, entre em contato pelo Discord.";
-
-                    targetPlayer.kickPlayer(banMessage);
-                }
-                break;
-        }
-    }
-
-    private boolean handleHistoricoCommand(CommandSender sender, String[] args) {
-        if (!sender.hasPermission("judgementday.historico")) {
-            sender.sendMessage(prefix + ChatColor.RED + "Você não tem permissão para usar este comando.");
-            return true;
-        }
-
-        if (args.length < 1) {
-            sender.sendMessage(prefix + ChatColor.RED + "Uso correto: /historico <jogador>");
-            return true;
-        }
-
-        String targetName = args[0];
-        UUID targetUUID = null;
-
-        // Tenta obter UUID do jogador
-        Player targetPlayer = Bukkit.getPlayer(targetName);
-        if (targetPlayer != null) {
-            targetUUID = targetPlayer.getUniqueId();
-        } else {
-            // Tenta buscar de jogadores offline
-            for (String uuidStr : punicoesConfig.getKeys(false)) {
-                String storedName = punicoesConfig.getString(uuidStr + ".nome");
-                if (storedName != null && storedName.equalsIgnoreCase(targetName)) {
-                    targetUUID = UUID.fromString(uuidStr);
-                    break;
-                }
-            }
-
-            if (targetUUID == null) {
-                sender.sendMessage(prefix + ChatColor.RED + "Jogador não encontrado.");
-                return true;
-            }
-        }
-
-        // Obtém o histórico do jogador
-        exibirHistorico(sender, targetUUID, targetName);
-
-        return true;
-    }
-
-    private void exibirHistorico(CommandSender sender, UUID targetUUID, String targetName) {
-        String playerPath = targetUUID.toString();
-
-        if (!punicoesConfig.contains(playerPath + ".punicoes")) {
-            sender.sendMessage(prefix + ChatColor.GREEN + targetName + " não tem histórico de punições.");
-            return;
-        }
-
-        ConfigurationSection punicoesSection = punicoesConfig.getConfigurationSection(playerPath + ".punicoes");
-        if (punicoesSection == null || punicoesSection.getKeys(false).isEmpty()) {
-            sender.sendMessage(prefix + ChatColor.GREEN + targetName + " não tem histórico de punições.");
-            return;
-        }
-
-        // Ordena as punições por data (mais recente primeiro)
-        List<String> punicaoIds = new ArrayList<>(punicoesSection.getKeys(false));
-        punicaoIds.sort((id1, id2) -> {
-            long data1 = punicoesSection.getLong(id1 + ".data", 0);
-            long data2 = punicoesSection.getLong(id2 + ".data", 0);
-            return Long.compare(data2, data1); // Ordem decrescente
-        });
-
-        sender.sendMessage("");
-        sender.sendMessage(prefix + ChatColor.YELLOW + "Histórico de " + targetName + ":");
-
-        int count = 0;
-        for (String punicaoId : punicaoIds) {
-            ConfigurationSection punicaoSection = punicoesSection.getConfigurationSection(punicaoId);
-            if (punicaoSection == null) continue;
-
-            String tipo = punicaoSection.getString("tipo", "DESCONHECIDO");
-            String motivo = punicaoSection.getString("motivo", "Desconhecido");
-            String staff = punicaoSection.getString("staff", "Desconhecido");
-            String tempoStr = punicaoSection.getString("tempo", "?");
-            boolean revogada = punicaoSection.getBoolean("revogada", false);
-            boolean expirou = punicaoSection.getBoolean("expirou", false);
-            long data = punicaoSection.getLong("data", 0);
-
-            String status;
-            if (revogada) {
-                status = ChatColor.GREEN + "REVOGADA";
-            } else if (expirou) {
-                status = ChatColor.YELLOW + "EXPIRADA";
-            } else {
-                long expiracao = punicaoSection.getLong("expiracao", -1);
-                if (expiracao == -1) {
-                    status = ChatColor.RED + "PERMANENTE";
-                } else if (expiracao > System.currentTimeMillis()) {
-                    status = ChatColor.RED + "ATIVA";
-                } else {
-                    status = ChatColor.YELLOW + "EXPIRADA";
-                }
-            }
-
-            sender.sendMessage("");
-            sender.sendMessage(ChatColor.GRAY + "ID: " + punicaoId + " - " + status);
-            sender.sendMessage(ChatColor.WHITE + "Tipo: " + ChatColor.GOLD + tipo);
-            sender.sendMessage(ChatColor.WHITE + "Motivo: " + ChatColor.YELLOW + formatarMotivo(motivo));
-            sender.sendMessage(ChatColor.WHITE + "Aplicada por: " + ChatColor.YELLOW + staff);
-            sender.sendMessage(ChatColor.WHITE + "Duração: " + ChatColor.AQUA + tempoStr);
-            sender.sendMessage(ChatColor.WHITE + "Data: " + ChatColor.AQUA + formatarData(data));
-
-            count++;
-            // Limita a 10 punições por vez para não sobrecarregar o chat
-            if (count >= 10) {
-                sender.sendMessage("");
-                sender.sendMessage(ChatColor.YELLOW + "Mostrando 10 punições mais recentes. Use /historico " + targetName + " <página> para ver mais.");
-                break;
-            }
-        }
-
-        sender.sendMessage("");
-    }
-
-    private boolean handleDespunirCommand(CommandSender sender, String[] args) {
-        if (!sender.hasPermission("judgementday.despunir")) {
-            sender.sendMessage(prefix + ChatColor.RED + "Você não tem permissão para usar este comando.");
-            return true;
-        }
-
-        if (args.length < 1) {
-            sender.sendMessage(prefix + ChatColor.RED + "Uso correto: /despunir <ID>");
-            return true;
-        }
-
-        String punicaoId = args[0];
-
-        // Busca a punição pelo ID
-        for (String uuidStr : punicoesConfig.getKeys(false)) {
-            ConfigurationSection playerSection = punicoesConfig.getConfigurationSection(uuidStr);
-            if (playerSection != null && playerSection.contains("punicoes." + punicaoId)) {
-                String playerName = playerSection.getString("nome", "Desconhecido");
-                revogarPunicao(sender, UUID.fromString(uuidStr), playerName, punicaoId);
-                return true;
-            }
-        }
-
-        sender.sendMessage(prefix + ChatColor.RED + "Punição com ID " + punicaoId + " não encontrada.");
-        return true;
-    }
-
-    private void revogarPunicao(CommandSender sender, UUID targetUUID, String targetName, String punicaoId) {
-        String playerPath = targetUUID.toString();
-        String punicaoPath = playerPath + ".punicoes." + punicaoId;
-
-        if (!punicoesConfig.contains(punicaoPath)) {
-            sender.sendMessage(prefix + ChatColor.RED + "Punição com ID " + punicaoId + " não encontrada.");
-            return;
-        }
-
-        // Verifica se a punição já foi revogada
-        if (punicoesConfig.getBoolean(punicaoPath + ".revogada", false)) {
-            sender.sendMessage(prefix + ChatColor.RED + "Esta punição já foi revogada anteriormente.");
-            return;
-        }
-
-        // Revoga a punição
-        punicoesConfig.set(punicaoPath + ".revogada", true);
-
-        // Registra quem revogou
-        punicoesConfig.set(punicaoPath + ".revogadaPor", sender.getName());
-        punicoesConfig.set(punicaoPath + ".dataRevogacao", System.currentTimeMillis());
-
-        // Salva as alterações
-        try {
-            punicoesConfig.save(punicoesFile);
-        } catch (IOException e) {
-            e.printStackTrace();
-            sender.sendMessage(prefix + ChatColor.RED + "Erro ao salvar a revogação da punição.");
-            return;
-        }
-
-        // Remove a punição ativa (se aplicável)
-        jogadoresComPunicaoAtiva.remove(targetUUID);
-
-        // Obtém informações da punição
-        String tipo = punicoesConfig.getString(punicaoPath + ".tipo", "DESCONHECIDO");
-        String motivo = punicoesConfig.getString(punicaoPath + ".motivo", "Desconhecido");
-
-        // Notifica o staff
-        sender.sendMessage("");
-        sender.sendMessage(prefix + ChatColor.GREEN + "Punição revogada com sucesso!");
-        sender.sendMessage(ChatColor.WHITE + "Jogador: " + ChatColor.YELLOW + targetName);
-        sender.sendMessage(ChatColor.WHITE + "Tipo: " + ChatColor.GOLD + tipo);
-        sender.sendMessage(ChatColor.WHITE + "Motivo: " + ChatColor.YELLOW + formatarMotivo(motivo));
-        sender.sendMessage("");
-
-        // Notifica o servidor
-        String mensagemServidor = prefix + ChatColor.YELLOW + targetName +
-                ChatColor.WHITE + " teve sua punição de " + ChatColor.GOLD + tipo +
-                ChatColor.WHITE + " por " + ChatColor.YELLOW + formatarMotivo(motivo) +
-                ChatColor.WHITE + " revogada por " + ChatColor.YELLOW + sender.getName();
-
-        for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
-            onlinePlayer.sendMessage(mensagemServidor);
-        }
-
-        // Notifica o jogador se estiver online
-        Player targetPlayer = Bukkit.getPlayer(targetUUID);
-        if (targetPlayer != null && targetPlayer.isOnline()) {
-            targetPlayer.sendMessage("");
-            targetPlayer.sendMessage(prefix + ChatColor.GREEN + "Sua punição foi revogada!");
-            targetPlayer.sendMessage(ChatColor.WHITE + "Tipo: " + ChatColor.GOLD + tipo);
-            targetPlayer.sendMessage(ChatColor.WHITE + "Motivo original: " + ChatColor.YELLOW + formatarMotivo(motivo));
-            targetPlayer.sendMessage(ChatColor.WHITE + "Revogada por: " + ChatColor.YELLOW + sender.getName());
-            targetPlayer.sendMessage("");
-        }
-    }
-
-    private boolean handleReportarCommand(CommandSender sender, String[] args) {
-        if (!(sender instanceof Player)) {
-            sender.sendMessage(prefix + ChatColor.RED + "Este comando só pode ser executado por um jogador.");
-            return true;
-        }
-
-        Player player = (Player) sender;
-
-        if (args.length < 2) {
-            player.sendMessage(prefix + ChatColor.RED + "Uso correto: /reportar <jogador> <motivo>");
-            return true;
-        }
-
-        String targetName = args[0];
-
-        // Verifica se o jogador existe
-        Player targetPlayer = Bukkit.getPlayer(targetName);
-        UUID targetUUID = null;
-
-        if (targetPlayer != null) {
-            targetUUID = targetPlayer.getUniqueId();
-        } else {
-            // Tenta buscar de jogadores offline
-            for (String uuidStr : punicoesConfig.getKeys(false)) {
-                String storedName = punicoesConfig.getString(uuidStr + ".nome");
-                if (storedName != null && storedName.equalsIgnoreCase(targetName)) {
-                    targetUUID = UUID.fromString(uuidStr);
-                    targetName = storedName; // Usa o nome exato armazenado
-                    break;
-                }
-            }
-
-            if (targetUUID == null) {
-                player.sendMessage(prefix + ChatColor.RED + "Jogador não encontrado.");
-                return true;
-            }
-        }
-
-        // Não permite reportar a si mesmo
-        if (player.getUniqueId().equals(targetUUID)) {
-            player.sendMessage(prefix + ChatColor.RED + "Você não pode reportar a si mesmo.");
-            return true;
-        }
-
-        // Monta o motivo
-        StringBuilder motivo = new StringBuilder();
-        for (int i = 1; i < args.length; i++) {
-            motivo.append(args[i]).append(" ");
-        }
-
-        // Registra o report
-        String reportId = gerarReportId();
-
-        reportsConfig.set(reportId + ".reportado", targetName);
-        reportsConfig.set(reportId + ".reportadoUUID", targetUUID.toString());
-        reportsConfig.set(reportId + ".reporter", player.getName());
-        reportsConfig.set(reportId + ".reporterUUID", player.getUniqueId().toString());
-        reportsConfig.set(reportId + ".motivo", motivo.toString().trim());
-        reportsConfig.set(reportId + ".data", System.currentTimeMillis());
-        reportsConfig.set(reportId + ".resolvido", false);
-
-        try {
-            reportsConfig.save(reportsFile);
-        } catch (IOException e) {
-            e.printStackTrace();
-            player.sendMessage(prefix + ChatColor.RED + "Erro ao salvar o report.");
-            return true;
-        }
-
-        // Mensagem para o jogador
-        player.sendMessage(prefix + ChatColor.GREEN + "Seu report contra " + targetName + " foi enviado com sucesso!");
-        player.sendMessage(ChatColor.GREEN + "A equipe irá analisar seu report em breve.");
-
-        // Notifica os staffs online
-        for (Player staffPlayer : Bukkit.getOnlinePlayers()) {
-            if (staffPlayer.hasPermission("judgementday.reports")) {
-                staffPlayer.sendMessage("");
-                staffPlayer.sendMessage(prefix + ChatColor.YELLOW + "Novo report recebido!");
-                staffPlayer.sendMessage(ChatColor.WHITE + "Reportado: " + ChatColor.YELLOW + targetName);
-                staffPlayer.sendMessage(ChatColor.WHITE + "Reportado por: " + ChatColor.YELLOW + player.getName());
-                staffPlayer.sendMessage(ChatColor.WHITE + "Motivo: " + ChatColor.YELLOW + motivo.toString().trim());
-                staffPlayer.sendMessage(ChatColor.WHITE + "Use " + ChatColor.YELLOW + "/reports" + ChatColor.WHITE + " para ver todos os reports pendentes.");
-                staffPlayer.sendMessage("");
-            }
-        }
-
-        return true;
-    }
-
-    private boolean handleReportsCommand(CommandSender sender) {
-        if (!(sender instanceof Player)) {
-            sender.sendMessage(prefix + ChatColor.RED + "Este comando só pode ser executado por um jogador.");
-            return true;
-        }
-
-        Player player = (Player) sender;
-
-        if (!player.hasPermission("judgementday.reports")) {
-            player.sendMessage(prefix + ChatColor.RED + "Você não tem permissão para usar este comando.");
-            return true;
-        }
-
-        exibirMenuReports(player);
-        return true;
-    }
-
-    private void exibirMenuReports(Player staffPlayer) {
-        // Obter reports não resolvidos
-        List<String> reportsPendentes = new ArrayList<>();
-
-        for (String reportId : reportsConfig.getKeys(false)) {
-            if (!reportsConfig.getBoolean(reportId + ".resolvido", false)) {
-                reportsPendentes.add(reportId);
-            }
-        }
-
-        if (reportsPendentes.isEmpty()) {
-            staffPlayer.sendMessage(prefix + ChatColor.GREEN + "Não há reports pendentes.");
-            return;
-        }
-
-        // Calcula o tamanho necessário para o inventário (múltiplo de 9)
-        int reportCount = reportsPendentes.size();
-        int inventorySize = ((reportCount - 1) / 9 + 1) * 9;
-        inventorySize = Math.min(inventorySize, 54); // Máximo de 54 slots (6 linhas)
-
-        Inventory menu = Bukkit.createInventory(null, inventorySize, ChatColor.RED + "Reports Pendentes");
-
-        int slot = 0;
-        for (String reportId : reportsPendentes) {
-            if (slot >= inventorySize) break; // Limita ao tamanho do inventário
-
-            String reportado = reportsConfig.getString(reportId + ".reportado", "Desconhecido");
-            String reporter = reportsConfig.getString(reportId + ".reporter", "Desconhecido");
-            String motivo = reportsConfig.getString(reportId + ".motivo", "Desconhecido");
-            long data = reportsConfig.getLong(reportId + ".data", 0);
-
-            ItemStack item = new ItemStack(Material.PAPER);
-            ItemMeta meta = item.getItemMeta();
-            meta.setDisplayName(ChatColor.RED + "Report: " + reportId);
-
-            List<String> lore = new ArrayList<>();
-            lore.add(ChatColor.GRAY + "Reportado: " + ChatColor.YELLOW + reportado);
-            lore.add(ChatColor.GRAY + "Reportado por: " + ChatColor.YELLOW + reporter);
-            lore.add(ChatColor.GRAY + "Motivo: " + ChatColor.YELLOW + motivo);
-            lore.add(ChatColor.GRAY + "Data: " + ChatColor.AQUA + formatarData(data));
-            lore.add("");
-            lore.add(ChatColor.GREEN + "Clique para punir o jogador");
-
-            meta.setLore(lore);
-            item.setItemMeta(meta);
-
-            menu.setItem(slot, item);
-            slot++;
-        }
-
-        staffPlayer.openInventory(menu);
-    }
-
+    // Evento para verificar se um jogador está banido ao tentar logar
     @EventHandler
     public void onPlayerLogin(PlayerLoginEvent event) {
         Player player = event.getPlayer();
-        UUID playerUUID = player.getUniqueId();
+        String playerName = player.getName();
 
-        // Verifica se o jogador está banido
-        if (jogadoresComPunicaoAtiva.containsKey(playerUUID)) {
-            PunicaoTemporaria punicao = jogadoresComPunicaoAtiva.get(playerUUID);
+        if (isPlayerBanned(playerName)) {
+            // Obter detalhes do ban ativo
+            String playerKey = playerName.toLowerCase();
+            List<Map<?, ?>> activeBans = playerData.getMapList("players." + playerKey + ".punishments.ban");
 
-            if ("BAN".equals(punicao.getTipo())) {
-                long tempo = punicao.getExpiracao();
+            for (Map<?, ?> ban : activeBans) {
+                if ((boolean) ban.get("active")) {
+                    long expiry = (long) ban.get("expiry");
+                    String reason = (String) ban.get("reason");
+                    String punisher = (String) ban.get("punisher");
+                    int id = (int) ban.get("id");
+                    String proofLink = (String) ban.get("proofLink");
 
-                // Verifica se o banimento ainda está ativo
-                if (tempo > System.currentTimeMillis() || tempo == -1) {
-                    String tempoRestante = tempo == -1 ? "permanentemente" : "por " + formatarTempoRestante(tempo);
-                    String motivo = punicao.getMotivo();
-                    String punicaoId = punicao.getId();
-
-                    // Obtém informações adicionais
-                    String staffName = "Desconhecido";
-                    for (String uuidStr : punicoesConfig.getKeys(false)) {
-                        ConfigurationSection playerSection = punicoesConfig.getConfigurationSection(uuidStr);
-                        if (playerSection != null && playerSection.contains("punicoes." + punicaoId)) {
-                            staffName = playerSection.getString("punicoes." + punicaoId + ".staff", "Desconhecido");
-                            break;
-                        }
+                    // Verificar se o ban expirou
+                    if (expiry != -1 && expiry < System.currentTimeMillis()) {
+                        continue;
                     }
 
-                    // Formata a mensagem de kick
-                    String banMessage =
-                            ChatColor.RED + "Você está banido do servidor!\n\n" +
-                                    ChatColor.WHITE + "Motivo: " + ChatColor.YELLOW + formatarMotivo(motivo) + "\n" +
-                                    ChatColor.WHITE + "Duração: " + ChatColor.AQUA + tempoRestante + "\n" +
-                                    ChatColor.WHITE + "Staff: " + ChatColor.YELLOW + staffName + "\n" +
-                                    ChatColor.WHITE + "ID: " + ChatColor.GRAY + punicaoId + "\n\n" +
-                                    ChatColor.WHITE + "Para contestar, entre em contato pelo Discord.";
+                    long duration = expiry == -1 ? -1 : expiry - System.currentTimeMillis();
+                    event.disallow(PlayerLoginEvent.Result.KICK_BANNED, formatPunishmentMessage("ban", reason, punisher, duration, id, proofLink));
+                    return;
+                }
+            }
+        }
+    }
 
-                    event.disallow(PlayerLoginEvent.Result.KICK_BANNED, banMessage);
-                } else {
-                    // Se o banimento expirou, remove da lista
-                    jogadoresComPunicaoAtiva.remove(playerUUID);
+    // Evento para verificar se um jogador está silenciado ao tentar falar
+    @EventHandler
+    public void onPlayerChat(AsyncPlayerChatEvent event) {
+        Player player = event.getPlayer();
+        String playerName = player.getName();
 
-                    // Atualiza o status da punição no arquivo
-                    for (String uuidStr : punicoesConfig.getKeys(false)) {
-                        UUID uuid = UUID.fromString(uuidStr);
-                        if (uuid.equals(playerUUID)) {
-                            String punicaoPath = uuidStr + ".punicoes." + punicao.getId();
-                            if (punicoesConfig.contains(punicaoPath)) {
-                                punicoesConfig.set(punicaoPath + ".expirou", true);
-                                try {
-                                    punicoesConfig.save(punicoesFile);
-                                } catch (IOException e) {
-                                    e.printStackTrace();
-                                }
-                            }
-                            break;
-                        }
+        if (isPlayerMuted(playerName)) {
+            event.setCancelled(true);
+
+            // Obter detalhes do mute ativo
+            String playerKey = playerName.toLowerCase();
+            List<Map<?, ?>> activeMutes = playerData.getMapList("players." + playerKey + ".punishments.mute");
+
+            for (Map<?, ?> mute : activeMutes) {
+                if ((boolean) mute.get("active")) {
+                    long expiry = (long) mute.get("expiry");
+
+                    // Verificar se o mute expirou
+                    if (expiry != -1 && expiry < System.currentTimeMillis()) {
+                        continue;
+                    }
+
+                    String reason = (String) mute.get("reason");
+                    String punisher = (String) mute.get("punisher");
+                    int id = (int) mute.get("id");
+                    String proofLink = (String) mute.get("proofLink");
+
+                    long duration = expiry == -1 ? -1 : expiry - System.currentTimeMillis();
+                    player.sendMessage(PREFIX + ChatColor.RED + "Você está silenciado e não pode falar no chat.");
+                    player.sendMessage(formatPunishmentMessage("mute", reason, punisher, duration, id, proofLink));
+                    return;
+                }
+            }
+        }
+    }
+
+    // Manipulador de eventos para inventários
+    @EventHandler
+    public void onInventoryClick(InventoryClickEvent event) {
+        if (event.getWhoClicked() instanceof Player && event.getView().getTitle().contains("JudgementDay") ||
+                event.getView().getTitle().startsWith(ChatColor.RED + "Histórico:")) {
+            event.setCancelled(true);
+
+            Player player = (Player) event.getWhoClicked();
+            ItemStack clickedItem = event.getCurrentItem();
+
+            if (clickedItem == null || clickedItem.getType() == Material.AIR) {
+                return;
+            }
+
+            // Inventário de seleção de tipo de punição
+            if (event.getView().getTitle().equals(ChatColor.RED + "JudgementDay - Punir")) {
+                handlePunishmentTypeSelection(player, clickedItem);
+            }
+            // Inventário de seleção de motivo
+            else if (event.getView().getTitle().startsWith(ChatColor.RED + "JudgementDay - Motivos")) {
+                handlePunishmentReasonSelection(player, clickedItem);
+            }
+            // Inventário de reports
+            else if (event.getView().getTitle().equals(ChatColor.RED + "JudgementDay - Reports")) {
+                handleReportClick(player, clickedItem);
+            }
+            // Inventário de histórico
+            else if (event.getView().getTitle().startsWith(ChatColor.RED + "Histórico:")) {
+                // Apenas fechar o inventário ao clicar (evento já está cancelado)
+                // Sem ação especial para cliques no histórico
+            }
+        }
+    }
+
+    private void handlePunishmentTypeSelection(Player player, ItemStack clickedItem) {
+        if (!pendingPunishments.containsKey(player.getUniqueId())) {
+            player.sendMessage(PREFIX + ChatColor.RED + "Ocorreu um erro ao processar sua seleção.");
+            player.closeInventory();
+            return;
+        }
+
+        String targetPlayer = (String) pendingPunishments.get(player.getUniqueId()).get("target");
+        String displayName = clickedItem.getItemMeta().getDisplayName();
+
+        if (displayName.contains("Advertência")) {
+            openReasonsInventory(player, targetPlayer, "warn");
+        } else if (displayName.contains("Silenciamento")) {
+            openReasonsInventory(player, targetPlayer, "mute");
+        } else if (displayName.contains("Banimento")) {
+            openReasonsInventory(player, targetPlayer, "ban");
+        } else {
+            player.closeInventory();
+        }
+    }
+
+    private void handlePunishmentReasonSelection(Player player, ItemStack clickedItem) {
+        if (!pendingPunishments.containsKey(player.getUniqueId())) {
+            player.sendMessage(PREFIX + ChatColor.RED + "Ocorreu um erro ao processar sua seleção.");
+            player.closeInventory();
+            return;
+        }
+
+        Map<String, Object> punishment = pendingPunishments.get(player.getUniqueId());
+        String targetPlayer = (String) punishment.get("target");
+        String type = (String) punishment.get("type");
+
+        String reason = ChatColor.stripColor(clickedItem.getItemMeta().getDisplayName());
+        if (reason.endsWith(" (1ª)")) {
+            reason = reason.substring(0, reason.length() - 5);
+        } else if (reason.endsWith(" (2ª)")) {
+            reason = reason.substring(0, reason.length() - 5);
+        } else if (reason.endsWith(" (3ª)")) {
+            reason = reason.substring(0, reason.length() - 5);
+        } else if (reason.endsWith(" (3ª+)")) {
+            reason = reason.substring(0, reason.length() - 6);
+        }
+
+        // Obtém o nível de punição para esse jogador
+        int level = getPunishmentLevel(targetPlayer, type, reason);
+
+        // Obtém a duração da punição
+        long duration = 0;
+        try {
+            duration = punishmentTimes.get(type).get(reason).get(Math.min(level, 3));
+        } catch (Exception e) {
+            player.sendMessage(PREFIX + ChatColor.RED + "Erro ao obter tempo de punição. Usando 1 hora como padrão.");
+            duration = 60 * 60 * 1000; // 1 hora em milissegundos
+        }
+
+        // Atualiza as informações da punição pendente
+        punishment.put("reason", reason);
+        punishment.put("duration", duration);
+
+        player.closeInventory();
+        player.sendMessage(PREFIX + ChatColor.GOLD + "Você selecionou " + ChatColor.RED + formatPunishmentType(type) +
+                ChatColor.GOLD + " por " + ChatColor.WHITE + reason +
+                ChatColor.GOLD + " com duração de " + ChatColor.WHITE + formatDuration(duration));
+
+        player.sendMessage(PREFIX + ChatColor.GOLD + "Digite o link da prova no chat:");
+        awaitingProofLinks.put(player.getUniqueId(), targetPlayer);
+    }
+
+    private void handleReportClick(Player player, ItemStack clickedItem) {
+        ItemMeta meta = clickedItem.getItemMeta();
+        if (meta != null && meta.hasLore()) {
+            List<String> lore = meta.getLore();
+            for (String line : lore) {
+                if (line.startsWith(ChatColor.GOLD + "ID: " + ChatColor.WHITE)) {
+                    String reportId = ChatColor.stripColor(line).substring(4);
+
+                    if (reportData.contains("reports." + reportId)) {
+                        Map<?, ?> report = reportData.getConfigurationSection("reports." + reportId).getValues(true);
+                        String reportedPlayer = (String) report.get("reported");
+
+                        // Abrir menu de punição para o jogador reportado
+                        pendingPunishments.put(player.getUniqueId(), new HashMap<>());
+                        pendingPunishments.get(player.getUniqueId()).put("target", reportedPlayer);
+                        openPunishmentTypeInventory(player, reportedPlayer);
+
+                        // Marcar report como processado
+                        reportData.set("reports." + reportId + ".processed", true);
+                        reportData.set("reports." + reportId + ".processedBy", player.getName());
+                        reportData.set("reports." + reportId + ".processedTime", System.currentTimeMillis());
+                        saveReportData();
+
+                        player.sendMessage(PREFIX + ChatColor.GREEN + "Você está processando o report contra " +
+                                ChatColor.YELLOW + reportedPlayer + ChatColor.GREEN + ".");
+                        break;
                     }
                 }
             }
         }
     }
 
-    // Utilitários
+    // Método para abrir inventário de seleção de tipo de punição
+    private void openPunishmentTypeInventory(Player player, String targetPlayer) {
+        Inventory inventory = Bukkit.createInventory(null, 9, ChatColor.RED + "JudgementDay - Punir");
 
-    private String gerarPunicaoId() {
-        // Gera um ID único de 8 caracteres
-        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        StringBuilder sb = new StringBuilder();
-        Random random = new Random();
+        // Item para Advertência (Warn)
+        ItemStack warnItem = new ItemStack(Material.PAPER);
+        ItemMeta warnMeta = warnItem.getItemMeta();
+        warnMeta.setDisplayName(ChatColor.YELLOW + "Advertência");
+        List<String> warnLore = new ArrayList<>();
+        warnLore.add(ChatColor.GRAY + "Clique para aplicar uma advertência");
+        warnLore.add(ChatColor.GRAY + "a " + ChatColor.RED + targetPlayer);
+        warnMeta.setLore(warnLore);
+        warnItem.setItemMeta(warnMeta);
 
-        for (int i = 0; i < 8; i++) {
-            sb.append(chars.charAt(random.nextInt(chars.length())));
-        }
+        // Item para Silenciamento (Mute)
+        ItemStack muteItem = new ItemStack(Material.BOOK);
+        ItemMeta muteMeta = muteItem.getItemMeta();
+        muteMeta.setDisplayName(ChatColor.GOLD + "Silenciamento");
+        List<String> muteLore = new ArrayList<>();
+        muteLore.add(ChatColor.GRAY + "Clique para silenciar");
+        muteLore.add(ChatColor.GRAY + "a " + ChatColor.RED + targetPlayer);
+        muteMeta.setLore(muteLore);
+        muteItem.setItemMeta(muteMeta);
 
-        return sb.toString();
+        // Item para Banimento (Ban)
+        ItemStack banItem = new ItemStack(Material.BARRIER);
+        ItemMeta banMeta = banItem.getItemMeta();
+        banMeta.setDisplayName(ChatColor.RED + "Banimento");
+        List<String> banLore = new ArrayList<>();
+        banLore.add(ChatColor.GRAY + "Clique para banir");
+        banLore.add(ChatColor.GRAY + "a " + ChatColor.RED + targetPlayer);
+        banMeta.setLore(banLore);
+        banItem.setItemMeta(banMeta);
+
+        // Adicionar itens ao inventário
+        inventory.setItem(2, warnItem);
+        inventory.setItem(4, muteItem);
+        inventory.setItem(6, banItem);
+
+        // Abrir inventário para o jogador
+        player.openInventory(inventory);
     }
 
-    private String gerarReportId() {
-        // Gera um ID único para reports
-        return "R" + System.currentTimeMillis() % 10000 + new Random().nextInt(1000);
-    }
+    // Método para abrir inventário de seleção de motivo de punição
+    private void openReasonsInventory(Player player, String targetPlayer, String type) {
+        List<String> reasons = punishmentReasons.get(type);
+        int size = Math.min(((reasons.size() + 8) / 9) * 9, 54);
 
-    private long calcularExpiracao(String tempoStr) {
-        if (tempoStr.equalsIgnoreCase("PERMANENTE")) {
-            return -1; // Indica punição permanente
-        }
+        Inventory inventory = Bukkit.createInventory(null, size, ChatColor.RED + "JudgementDay - Motivos (" + formatPunishmentType(type) + ")");
 
-        long duracao = 0;
-        String tempoLimpo = tempoStr.toLowerCase();
+        // Atualizar informações de punição pendente
+        pendingPunishments.get(player.getUniqueId()).put("target", targetPlayer);
+        pendingPunishments.get(player.getUniqueId()).put("type", type);
 
-        try {
-            if (tempoLimpo.contains("s")) {
-                int segundos = Integer.parseInt(tempoLimpo.replace("s", ""));
-                duracao = segundos * 1000L;
-            } else if (tempoLimpo.contains("m") && !tempoLimpo.contains("mo")) {
-                int minutos = Integer.parseInt(tempoLimpo.replace("m", ""));
-                duracao = minutos * 60 * 1000L;
-            } else if (tempoLimpo.contains("h")) {
-                int horas = Integer.parseInt(tempoLimpo.replace("h", ""));
-                duracao = horas * 60 * 60 * 1000L;
-            } else if (tempoLimpo.contains("d")) {
-                int dias = Integer.parseInt(tempoLimpo.replace("d", ""));
-                duracao = dias * 24 * 60 * 60 * 1000L;
-            } else if (tempoLimpo.contains("mo")) {
-                int meses = Integer.parseInt(tempoLimpo.replace("mo", ""));
-                duracao = meses * 30 * 24 * 60 * 60 * 1000L;
-            } else if (tempoLimpo.contains("y")) {
-                int anos = Integer.parseInt(tempoLimpo.replace("y", ""));
-                duracao = anos * 365 * 24 * 60 * 60 * 1000L;
-            } else {
-                // Se não tiver unidade, assume segundos
-                duracao = Integer.parseInt(tempoLimpo) * 1000L;
+        // Adicionar motivos ao inventário
+        for (int i = 0; i < reasons.size(); i++) {
+            String reason = reasons.get(i);
+            int level = getPunishmentLevel(targetPlayer, type, reason);
+
+            Material material;
+            ChatColor color;
+
+            switch (type) {
+                case "warn":
+                    material = Material.PAPER;
+                    color = ChatColor.YELLOW;
+                    break;
+                case "mute":
+                    material = Material.BOOK;
+                    color = ChatColor.GOLD;
+                    break;
+                case "ban":
+                    material = Material.BARRIER;
+                    color = ChatColor.RED;
+                    break;
+                default:
+                    material = Material.STONE;
+                    color = ChatColor.WHITE;
             }
-        } catch (NumberFormatException e) {
-            return 3600 * 1000L; // Padrão: 1 hora
+
+            ItemStack reasonItem = new ItemStack(material);
+            ItemMeta reasonMeta = reasonItem.getItemMeta();
+
+            String levelSuffix = level <= 3 ? " (" + level + "ª)" : " (3ª+)";
+            reasonMeta.setDisplayName(color + reason + ChatColor.GRAY + levelSuffix);
+
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + "Clique para selecionar este motivo");
+
+            // Tentar obter duração
+            long duration = 60 * 60 * 1000; // 1 hora como padrão
+            try {
+                duration = punishmentTimes.get(type).get(reason).get(Math.min(level, 3));
+            } catch (Exception e) {
+                // Manter tempo padrão se houver erro
+            }
+
+            if (duration == -1) {
+                lore.add(ChatColor.GOLD + "Duração: " + ChatColor.WHITE + "Permanente");
+            } else {
+                lore.add(ChatColor.GOLD + "Duração: " + ChatColor.WHITE + formatDuration(duration));
+            }
+
+            reasonMeta.setLore(lore);
+            reasonItem.setItemMeta(reasonMeta);
+
+            inventory.setItem(i, reasonItem);
         }
 
-        return System.currentTimeMillis() + duracao;
+        // Abrir inventário para o jogador
+        player.openInventory(inventory);
     }
 
-    private String formatarTempoRestante(long expiracao) {
-        long tempoRestante = expiracao - System.currentTimeMillis();
+    // Evento para capturar o link da prova
+    @EventHandler
+    public void onChatProofLink(AsyncPlayerChatEvent event) {
+        Player player = event.getPlayer();
+        UUID playerId = player.getUniqueId();
 
-        if (tempoRestante <= 0) {
-            return "0s";
-        }
+        if (awaitingProofLinks.containsKey(playerId)) {
+            event.setCancelled(true);
+            String link = event.getMessage();
+            String targetPlayer = awaitingProofLinks.get(playerId);
 
-        long segundos = tempoRestante / 1000 % 60;
-        long minutos = tempoRestante / (60 * 1000) % 60;
-        long horas = tempoRestante / (60 * 60 * 1000) % 24;
-        long dias = tempoRestante / (24 * 60 * 60 * 1000);
+            // Remover jogador da lista de espera
+            awaitingProofLinks.remove(playerId);
 
-        StringBuilder sb = new StringBuilder();
+            // Verificar se ainda há informações pendentes
+            if (!pendingPunishments.containsKey(playerId)) {
+                player.sendMessage(PREFIX + ChatColor.RED + "Ocorreu um erro ao processar a punição.");
+                return;
+            }
 
-        if (dias > 0) {
-            sb.append(dias).append("d ");
-        }
+            // Obter informações da punição
+            Map<String, Object> punishment = pendingPunishments.get(playerId);
+            String type = (String) punishment.get("type");
+            String reason = (String) punishment.get("reason");
+            long duration = (long) punishment.get("duration");
 
-        if (horas > 0 || sb.length() > 0) {
-            sb.append(horas).append("h ");
-        }
+            // Aplicar punição
+            addPunishment(targetPlayer, type, reason, player.getName(), duration, link);
 
-        if (minutos > 0 || sb.length() > 0) {
-            sb.append(minutos).append("m ");
-        }
+            // Remover jogador da lista de punições pendentes
+            pendingPunishments.remove(playerId);
 
-        sb.append(segundos).append("s");
-
-        return sb.toString().trim();
-    }
-
-    private String formatarData(long timestamp) {
-        return dateFormat.format(new Date(timestamp));
-    }
-
-    private String formatarMotivo(String motivo) {
-        // Formata o motivo para exibição (primeira letra maiúscula, resto minúsculo)
-        if (motivo.isEmpty()) return motivo;
-
-        return motivo.substring(0, 1).toUpperCase() + motivo.substring(1).toLowerCase();
-    }
-
-    private String getTipoPunicaoEmPortugues(String tipo) {
-        switch (tipo) {
-            case "WARN":
-                return "advertido";
-            case "MUTE":
-                return "silenciado";
-            case "BAN":
-                return "banido";
-            default:
-                return "punido";
+            player.sendMessage(PREFIX + ChatColor.GREEN + "Punição aplicada com sucesso!");
         }
     }
+
+    // Comandos
+    private class PunirCommand implements CommandExecutor {
+        @Override
+        public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+            if (!sender.hasPermission("judgementday.punir")) {
+                sender.sendMessage(PREFIX + ChatColor.RED + "Você não tem permissão para usar este comando.");
+                return true;
+            }
+
+            if (args.length < 1) {
+                sender.sendMessage(PREFIX + ChatColor.RED + "Uso: /" + label + " <jogador>");
+                return true;
+            }
+
+            String targetName = args[0];
+
+            // Verificar se o jogador existe
+            if (Bukkit.getPlayer(targetName) == null && Bukkit.getOfflinePlayer(targetName).hasPlayedBefore()) {
+                targetName = Bukkit.getOfflinePlayer(targetName).getName();
+            }
+
+            if (sender instanceof Player) {
+                Player player = (Player) sender;
+
+                // Iniciar processo de punição
+                pendingPunishments.put(player.getUniqueId(), new HashMap<>());
+                pendingPunishments.get(player.getUniqueId()).put("target", targetName);
+
+                openPunishmentTypeInventory(player, targetName);
+            } else {
+                sender.sendMessage(PREFIX + ChatColor.RED + "Este comando só pode ser executado por jogadores.");
+            }
+
+            return true;
+        }
+    }
+
+    private class RevogarCommand implements CommandExecutor {
+        @Override
+        public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+            if (!sender.hasPermission("judgementday.revogar")) {
+                sender.sendMessage(PREFIX + ChatColor.RED + "Você não tem permissão para usar este comando.");
+                return true;
+            }
+
+            if (args.length < 1) {
+                sender.sendMessage(PREFIX + ChatColor.RED + "Uso: /" + label + " <ID>");
+                return true;
+            }
+
+            int id;
+            try {
+                id = Integer.parseInt(args[0]);
+            } catch (NumberFormatException e) {
+                sender.sendMessage(PREFIX + ChatColor.RED + "ID de punição inválido.");
+                return true;
+            }
+
+            if (revokePunishment(id, sender.getName())) {
+                sender.sendMessage(PREFIX + ChatColor.GREEN + "Punição revogada com sucesso.");
+            } else {
+                sender.sendMessage(PREFIX + ChatColor.RED + "Não foi possível encontrar uma punição ativa com este ID.");
+            }
+
+            return true;
+        }
+    }
+
+    private class HistoricoCommand implements CommandExecutor {
+        @Override
+        public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+            if (!sender.hasPermission("judgementday.historico")) {
+                sender.sendMessage(PREFIX + ChatColor.RED + "Você não tem permissão para usar este comando.");
+                return true;
+            }
+
+            if (args.length < 1) {
+                sender.sendMessage(PREFIX + ChatColor.RED + "Uso: /" + label + " <jogador>");
+                return true;
+            }
+
+            if (!(sender instanceof Player)) {
+                sender.sendMessage(PREFIX + ChatColor.RED + "Este comando só pode ser executado por jogadores.");
+                return true;
+            }
+
+            Player player = (Player) sender;
+            String targetName = args[0];
+
+            // Abrir menu GUI com o histórico
+            openHistoryInventory(player, targetName);
+
+            return true;
+        }
+    }
+
+    private class ReportarCommand implements CommandExecutor {
+        @Override
+        public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+            if (!(sender instanceof Player)) {
+                sender.sendMessage(PREFIX + ChatColor.RED + "Este comando só pode ser executado por jogadores.");
+                return true;
+            }
+
+            if (args.length < 2) {
+                sender.sendMessage(PREFIX + ChatColor.RED + "Uso: /" + label + " <jogador> <motivo>");
+                return true;
+            }
+
+            Player player = (Player) sender;
+            String reportedName = args[0];
+            StringBuilder reasonBuilder = new StringBuilder();
+
+            for (int i = 1; i < args.length; i++) {
+                reasonBuilder.append(args[i]).append(" ");
+            }
+
+            String reason = reasonBuilder.toString().trim();
+
+            // Gerar ID único para o report
+            int reportId = (int) (System.currentTimeMillis() % 100000);
+
+            // Salvar report
+            reportData.set("reports." + reportId + ".reporter", player.getName());
+            reportData.set("reports." + reportId + ".reported", reportedName);
+            reportData.set("reports." + reportId + ".reason", reason);
+            reportData.set("reports." + reportId + ".time", System.currentTimeMillis());
+            reportData.set("reports." + reportId + ".processed", false);
+
+            saveReportData();
+
+            player.sendMessage(PREFIX + ChatColor.GREEN + "Você reportou " + ChatColor.YELLOW + reportedName +
+                    ChatColor.GREEN + " por " + ChatColor.WHITE + reason + ChatColor.GREEN + ".");
+
+            // Notificar staff online sobre o novo report
+            for (Player staff : Bukkit.getOnlinePlayers()) {
+                if (staff.hasPermission("judgementday.staff")) {
+                    staff.sendMessage(PREFIX + ChatColor.YELLOW + player.getName() + ChatColor.GREEN + " reportou " +
+                            ChatColor.YELLOW + reportedName + ChatColor.GREEN + " por " +
+                            ChatColor.WHITE + reason + ChatColor.GREEN + ".");
+                }
+            }
+
+            return true;
+        }
+    }
+
+    private class ReportsCommand implements CommandExecutor {
+        @Override
+        public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+            if (!sender.hasPermission("judgementday.reports")) {
+                sender.sendMessage(PREFIX + ChatColor.RED + "Você não tem permissão para usar este comando.");
+                return true;
+            }
+
+            if (!(sender instanceof Player)) {
+                sender.sendMessage(PREFIX + ChatColor.RED + "Este comando só pode ser executado por jogadores.");
+                return true;
+            }
+
+            Player player = (Player) sender;
+
+            // Verificar se existem reports
+            if (!reportData.contains("reports") || reportData.getConfigurationSection("reports") == null ||
+                    reportData.getConfigurationSection("reports").getKeys(false).isEmpty()) {
+                player.sendMessage(PREFIX + ChatColor.RED + "Não há reports pendentes.");
+                return true;
+            }
+
+            // Coletar reports não processados
+            List<Map<String, Object>> pendingReports = new ArrayList<>();
+
+            for (String reportId : reportData.getConfigurationSection("reports").getKeys(false)) {
+                boolean processed = reportData.getBoolean("reports." + reportId + ".processed", false);
+
+                if (!processed) {
+                    Map<String, Object> report = new HashMap<>();
+                    report.put("id", reportId);
+                    report.put("reporter", reportData.getString("reports." + reportId + ".reporter"));
+                    report.put("reported", reportData.getString("reports." + reportId + ".reported"));
+                    report.put("reason", reportData.getString("reports." + reportId + ".reason"));
+                    report.put("time", reportData.getLong("reports." + reportId + ".time"));
+
+                    pendingReports.add(report);
+                }
+            }
+
+            if (pendingReports.isEmpty()) {
+                player.sendMessage(PREFIX + ChatColor.RED + "Não há reports pendentes.");
+                return true;
+            }
+
+            // Ordenar por data (mais recentes primeiro)
+            pendingReports.sort((r1, r2) -> Long.compare((long) r2.get("time"), (long) r1.get("time")));
+
+            // Criar inventário de reports
+            int size = Math.min(((pendingReports.size() + 8) / 9) * 9, 54);
+            Inventory inventory = Bukkit.createInventory(null, size, ChatColor.RED + "JudgementDay - Reports");
+
+            // Adicionar reports ao inventário
+            for (int i = 0; i < pendingReports.size() && i < size; i++) {
+                Map<String, Object> report = pendingReports.get(i);
+
+                ItemStack reportItem = new ItemStack(Material.BOOK_AND_QUILL);
+                ItemMeta meta = reportItem.getItemMeta();
+
+                String reportedPlayer = (String) report.get("reported");
+                meta.setDisplayName(ChatColor.RED + reportedPlayer);
+
+                List<String> lore = new ArrayList<>();
+                lore.add(ChatColor.GOLD + "ID: " + ChatColor.WHITE + report.get("id"));
+                lore.add(ChatColor.GOLD + "Reportado por: " + ChatColor.WHITE + report.get("reporter"));
+                lore.add(ChatColor.GOLD + "Motivo: " + ChatColor.WHITE + report.get("reason"));
+
+                long time = (long) report.get("time");
+                String date = new SimpleDateFormat("dd/MM/yyyy HH:mm").format(new Date(time));
+                lore.add(ChatColor.GOLD + "Data: " + ChatColor.WHITE + date);
+
+                lore.add("");
+                lore.add(ChatColor.GREEN + "Clique para processar este report");
+
+                meta.setLore(lore);
+                reportItem.setItemMeta(meta);
+
+                inventory.setItem(i, reportItem);
+            }
+
+            // Abrir inventário para o jogador
+            player.openInventory(inventory);
+
+            return true;
+        }
+    }
+}
+
