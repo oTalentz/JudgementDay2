@@ -1,4 +1,4 @@
-package br.com.judgementday;
+package com.JudgementDay;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
