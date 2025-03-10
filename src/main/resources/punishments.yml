@@ -1,0 +1,147 @@
+# JudgementDay Punishments Configuration
+#
+# This file defines punishment types, reasons, and durations.
+# Durations are in minutes. Use -1 for permanent punishments.
+
+# Punishment reasons for each type
+reasons:
+  warn:
+    - "Spam"
+    - "Minor Offense"
+    - "Excessive Caps"
+    - "Chat Flooding"
+    - "Inappropriate Language"
+
+  mute:
+    - "Harassment"
+    - "Hate Speech"
+    - "Toxicity"
+    - "Advertisement"
+    - "Staff Disrespect"
+    - "Bypassing Chat Filter"
+
+  ban:
+    - "Cheating/Hacking"
+    - "Exploitation"
+    - "Severe Toxicity"
+    - "Threats"
+    - "Inappropriate Content"
+    - "Ban Evasion"
+
+  kick:
+    - "Server Rule Violation"
+    - "Temporary Measure"
+    - "Suspicious Activity"
+    - "Server Maintenance"
+
+# Punishment durations for each reason and level
+# Level 1 = First offense, Level 2 = Second offense, Level 3 = Third offense or more
+durations:
+  warn:
+    Spam:
+      1: 30    # 30 minutes
+      2: 60    # 1 hour
+      3: 120   # 2 hours
+
+    Minor Offense:
+      1: 60    # 1 hour
+      2: 120   # 2 hours
+      3: 240   # 4 hours
+
+    Excessive Caps:
+      1: 15    # 15 minutes
+      2: 30    # 30 minutes
+      3: 60    # 1 hour
+
+    Chat Flooding:
+      1: 30    # 30 minutes
+      2: 60    # 1 hour
+      3: 120   # 2 hours
+
+    Inappropriate Language:
+      1: 60    # 1 hour
+      2: 120   # 2 hours
+      3: 240   # 4 hours
+
+  mute:
+    Harassment:
+      1: 120   # 2 hours
+      2: 720   # 12 hours
+      3: 1440  # 24 hours
+
+    Hate Speech:
+      1: 1440  # 24 hours
+      2: 4320  # 3 days
+      3: 10080 # 7 days
+
+    Toxicity:
+      1: 360   # 6 hours
+      2: 1440  # 24 hours
+      3: 4320  # 3 days
+
+    Advertisement:
+      1: 720   # 12 hours
+      2: 2880  # 2 days
+      3: 7200  # 5 days
+
+    Staff Disrespect:
+      1: 360   # 6 hours
+      2: 1440  # 24 hours
+      3: 4320  # 3 days
+
+    Bypassing Chat Filter:
+      1: 720   # 12 hours
+      2: 2880  # 2 days
+      3: 7200  # 5 days
+
+  ban:
+    Cheating/Hacking:
+      1: 7200  # 5 days
+      2: 20160 # 14 days
+      3: -1    # Permanent
+
+    Exploitation:
+      1: 4320  # 3 days
+      2: 10080 # 7 days
+      3: 20160 # 14 days
+
+    Severe Toxicity:
+      1: 2880  # 2 days
+      2: 7200  # 5 days
+      3: 20160 # 14 days
+
+    Threats:
+      1: 4320  # 3 days
+      2: 10080 # 7 days
+      3: -1    # Permanent
+
+    Inappropriate Content:
+      1: 7200  # 5 days
+      2: 20160 # 14 days
+      3: -1    # Permanent
+
+    Ban Evasion:
+      1: 10080 # 7 days
+      2: 20160 # 14 days
+      3: -1    # Permanent
+
+  kick:
+    Server Rule Violation:
+      1: 0     # No duration (immediate kick)
+      2: 0
+      3: 0
+
+    Temporary Measure:
+      1: 0     # No duration (immediate kick)
+      2: 0
+      3: 0
+
+    Suspicious Activity:
+      1: 0     # No duration (immediate kick)
+      2: 0
+      3: 0
+
+    Server Maintenance:
+      1: 0     # No duration (immediate kick)
+      2: 0
+      3: 0

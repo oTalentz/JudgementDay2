@@ -1,105 +1,93 @@
 name: JudgementDay
-version: 1.0.0
-main: br.com.judgementday.JudgementDay
-author: SeuNome
-description: Sistema de punições completo com advertências, silenciamentos e banimentos.
-# Versão para Minecraft 1.8
+version: 2.0.0
+main: com.judgementday.judgementday
+author: YourName
+description: Sistema avançado de gerenciamento de punições e moderação para servidores
+website: https://seu-site.com
+api-version: 1.13
+softdepend: [Vault]
 
 commands:
-  punir:
-    description: Abre o menu para punir um jogador
-    usage: /punir <jogador>
-    permission: judgementday.punir
-    aliases: [p, ban, banir, mute, mutar, warn, advertir]
-
-  revogar:
-    description: Revoga uma punição pelo ID
-    usage: /revogar <ID>
-    permission: judgementday.revogar
-    aliases: [unban, unmute, unwarn, pardon, perdoar]
-
-  historico:
-    description: Exibe o histórico de punições de um jogador
-    usage: /historico <jogador> [filtro]
-    permission: judgementday.historico
-    aliases: [history, punicoes, punishments, hist]
-
-  reportar:
-    description: Reporta um jogador
-    usage: /reportar <jogador> <motivo>
-    aliases: [report, reportar, denunciar]
-
+  punish:
+    description: Aplica uma punição a um jogador
+    usage: /punish <player>
+    aliases: [punir]
+  revoke:
+    description: Revoga uma punição existente
+    usage: /revoke <id> [reason]
+    aliases: [revogar]
+  history:
+    description: Mostra o histórico de punições de um jogador
+    usage: /history <player>
+    aliases: [historico]
+  report:
+    description: Reporta um jogador por comportamento inadequado
+    usage: /report <player> <reason>
+    aliases: [reportar]
   reports:
-    description: Exibe os reports pendentes
-    usage: /reports [página]
-    permission: judgementday.reports
-    aliases: [verreports, denuncias]
-
-  exportar:
-    description: Exporta o histórico de punições de um jogador para CSV
-    usage: /exportar <jogador>
-    permission: judgementday.exportar
-    aliases: [export, exportarhistorico]
-
-  estatisticas:
-    description: Mostra estatísticas de punições
-    usage: /estatisticas
-    permission: judgementday.estatisticas
-    aliases: [stats, estatisticas, punishstats]
-
-  punirmassa:
-    description: Aplica uma punição a vários jogadores ao mesmo tempo
-    usage: /punirmassa <warn|mute|ban> <motivo> <duração> <jogador1,jogador2,...> [prova] [silencioso]
-    permission: judgementday.punirmassa
-    aliases: [masspunish, punirmultiplos]
+    description: Mostra a lista de reports pendentes
+    usage: /reports
+  appeal:
+    description: Apela contra uma punição recebida
+    usage: /appeal <punishment_id>
+    aliases: [apelar]
+  jdadmin:
+    description: Comandos de administração do JudgementDay
+    usage: /jdadmin [reload|reports|appeals|cleanup]
+  check:
+    description: Verifica as punições ativas de um jogador
+    usage: /check <player>
+    aliases: [verificar]
 
 permissions:
-  judgementday.admin:
-    description: Acesso a todas as funcionalidades do plugin
-    default: op
+  judgementday.*:
+    description: Acesso a todos os comandos do JudgementDay
     children:
-      judgementday.punir: true
-      judgementday.revogar: true
-      judgementday.historico: true
+      judgementday.punish: true
+      judgementday.revoke: true
+      judgementday.history: true
+      judgementday.history.others: true
+      judgementday.report: true
       judgementday.reports: true
+      judgementday.appeal: true
+      judgementday.admin: true
+      judgementday.check: true
+      judgementday.check.others: true
       judgementday.staff: true
-      judgementday.exportar: true
-      judgementday.estatisticas: true
-      judgementday.punirmassa: true
-      judgementday.silencioso: true
-
-  judgementday.punir:
-    description: Permite punir jogadores
+      judgementday.bypass.mute: true
+  judgementday.punish:
+    description: Permite aplicar punições
     default: op
-
-  judgementday.revogar:
+  judgementday.revoke:
     description: Permite revogar punições
     default: op
-
-  judgementday.historico:
-    description: Permite ver o histórico de punições
+  judgementday.history:
+    description: Permite ver seu próprio histórico de punições
+    default: true
+  judgementday.history.others:
+    description: Permite ver o histórico de punições de outros jogadores
     default: op
-
+  judgementday.report:
+    description: Permite reportar jogadores
+    default: true
   judgementday.reports:
-    description: Permite ver os reports pendentes
+    description: Permite ver reports pendentes
     default: op
-
+  judgementday.appeal:
+    description: Permite apelar contra punições
+    default: true
+  judgementday.admin:
+    description: Permite usar comandos de administração
+    default: op
+  judgementday.check:
+    description: Permite verificar suas próprias punições ativas
+    default: true
+  judgementday.check.others:
+    description: Permite verificar punições ativas de outros jogadores
+    default: op
   judgementday.staff:
-    description: Recebe notificações de punições e reports
+    description: Recebe notificações de staff
     default: op
-
-  judgementday.exportar:
-    description: Permite exportar histórico de punições
-    default: op
-
-  judgementday.estatisticas:
-    description: Permite ver estatísticas de punições
-    default: op
-
-  judgementday.punirmassa:
-    description: Permite aplicar punições em massa
-    default: op
-
-  judgementday.silencioso:
-    description: Permite aplicar punições no modo silencioso
+  judgementday.bypass.mute:
+    description: Permite falar mesmo quando silenciado
     default: op

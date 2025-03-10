@@ -1,0 +1,90 @@
+# JudgementDay Messages
+#
+# This file contains all messages used by the JudgementDay plugin.
+# Color codes can be used with the & symbol.
+# Placeholders are enclosed in {curly braces}.
+
+# Plugin prefix
+prefix: "&c[&4JudgementDay&c] &r"
+
+# General messages
+general:
+  no-permission: "&cYou don't have permission to use this command."
+  player-only: "&cThis command can only be used by players."
+  player-not-found: "&cPlayer not found."
+  error: "&cAn error occurred. Please try again."
+  plugin-reloaded: "&aJudgementDay configuration has been reloaded."
+
+# Punishment messages
+punishment:
+  notification: "&cYou have received a {type}."
+  temp-message: "&cType: &f{type}\n&cReason: &f{reason}\n&cStaff: &f{punisher}\n&cDuration: &f{duration}\n&cExpires: &f{expiry}\n&cID: &f{id}\n&cProof: &b{proof}"
+  permanent-message: "&cType: &f{type}\n&cReason: &f{reason}\n&cStaff: &f{punisher}\n&cDuration: &fPermanent\n&cID: &f{id}\n&cProof: &b{proof}"
+  muted: "&cYou are currently muted and cannot chat."
+  muted-generic: "&cYou are currently muted. Use /history to check your punishments."
+  broadcast: "&c{player} &6has been {type} by &a{punisher} &6(ID: &f{id}&6)"
+  revoke-broadcast: "&6The {type} for &c{player} &6has been revoked by &a{revoker} &6(ID: &f{id}&6)"
+  revoked: "&aYour {type} has been revoked by {revoker}."
+  request-proof: "&6Please enter a link to proof in chat (screenshot, video, etc.):"
+  invalid-proof-link: "&cInvalid proof link. Please provide a valid link to a screenshot or video."
+  success: "&aPunishment applied successfully. ID: {id}"
+  error: "&cFailed to apply punishment. Please try again."
+
+# Command messages
+command:
+  punish:
+    usage: "&cUsage: /punish <player>"
+    self: "&cYou cannot punish yourself."
+    exempt: "&cThis player is exempt from punishment."
+  revoke:
+    usage: "&cUsage: /revoke <id> [reason]"
+    invalid-id: "&cInvalid punishment ID."
+    not-found: "&cPunishment not found or already inactive."
+    success: "&aPunishment #{id} ({type} for {target}) has been revoked."
+    failed: "&cFailed to revoke punishment. It may not exist or is already inactive."
+  history:
+    usage: "&cUsage: /history [player] [page]"
+    no-punishments: "&cNo punishments found for this player."
+  report:
+    usage: "&cUsage: /report <player> <reason>"
+    self: "&cYou cannot report yourself."
+    exempt: "&cThis player cannot be reported."
+    cooldown: "&cYou must wait {time} before reporting this player again."
+    reason-too-short: "&cYour report reason is too short. Minimum length: {min} characters."
+    reason-too-long: "&cYour report reason is too long. Maximum length: {max} characters."
+    success: "&aYou have reported {player}. Staff will review your report soon."
+    failed: "&cFailed to submit report. Please try again."
+  appeal:
+    usage: "&cUsage: /appeal <id> <reason>"
+    invalid-id: "&cInvalid punishment ID."
+    not-found: "&cPunishment not found or not active."
+    not-target: "&cYou can only appeal your own punishments."
+    already-appealed: "&cThis punishment already has a pending appeal."
+    cooldown: "&cYou have submitted too many appeals recently. Please try again in {time}."
+    success: "&aYour appeal has been submitted. ID: {id}"
+    failed: "&cFailed to submit appeal. Please try again."
+  reload:
+    success: "&aJudgementDay configuration has been reloaded."
+    failed: "&cFailed to reload configuration. Check console for errors."
+
+# Report messages
+report:
+  broadcast: "&a{reporter} &6has reported &c{reported} &6for &f{reason} &6(ID: &f{id}&6)"
+  processed-punished: "&a{processor} &6has processed report against &c{reported} &6with a punishment &6(ID: &f{id}&6)"
+  processed-dismissed: "&a{processor} &6has dismissed report against &c{reported} &6(ID: &f{id}&6)"
+  no-reports: "&cThere are no pending reports."
+  already-processed: "&cThis report has already been processed."
+
+# Appeal messages
+appeal:
+  broadcast: "&c{player} &6has appealed punishment &f#{punishment_id} &6(Appeal ID: &f{id}&6)"
+  approved-broadcast: "&a{reviewer} &6has approved &c{player}'s &6appeal for punishment &f#{punishment_id} &6(ID: &f{id}&6)"
+  denied-broadcast: "&a{reviewer} &6has denied &c{player}'s &6appeal for punishment &f#{punishment_id} &6(ID: &f{id}&6)"
+  approved-notification: "&aYour appeal (ID: {id}) for punishment #{punishment_id} has been approved by {reviewer}.\n&aComment: &f{comment}"
+  denied-notification: "&cYour appeal (ID: {id}) for punishment #{punishment_id} has been denied by {reviewer}.\n&cComment: &f{comment}"
+  no-appeals: "&cThere are no pending appeals."
+
+# History messages
+history:
+  no-punishments: "&cNo punishments found for this player."
+  player-not-found: "&cPlayer not found."

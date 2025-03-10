@@ -1,116 +1,77 @@
-# JudgementDay - Sistema de Punições
-# Configuração principal
+# JudgementDay Configuration
+#
+# This file contains the main configuration for the JudgementDay plugin.
+# For punishment types and reasons, see punishments.yml
+# For messages, see messages.yml
 
-# Motivos de punição
-motivos:
-  warn:
-    - 'Flood'
-    - 'Spam'
-    - 'Ofensa leve'
-    - 'Capslock'
-  mute:
-    - 'Ofensa grave'
-    - 'Divulgação'
-    - 'Provocação'
-    - 'Racismo'
-  ban:
-    - 'Hack'
-    - 'Ameaça'
-    - 'Comportamento tóxico'
-    - 'Evasão de punição'
+# Debug mode - enables additional logging
+debug: false
 
-# Tempos de punição (em minutos)
-# Use -1 para punições permanentes
-tempos:
-  warn:
-    Flood:
-      1: 30    # 30 minutos na primeira ocorrência
-      2: 60    # 1 hora na segunda ocorrência
-      3: 120   # 2 horas na terceira ocorrência
+# Storage configuration
+storage:
+  # Storage type: yaml or mysql
+  type: yaml
 
-    Spam:
-      1: 30
-      2: 60
-      3: 120
+  # MySQL/MariaDB configuration (if type is mysql)
+  mysql:
+    host: localhost
+    port: 3306
+    database: minecraft
+    username: root
+    password: password
+    table-prefix: jd_
 
-    Ofensa leve:
-      1: 60
-      2: 120
-      3: 240
+  # Data cleanup settings
+  cleanup-interval: 24 # Hours between automatic cleanup tasks (0 to disable)
+  reports-days-to-keep: 30 # Number of days to keep processed reports (0 to keep forever)
 
-    Capslock:
-      1: 15
-      2: 30
-      3: 60
+# Discord integration
+discord:
+  enabled: false
+  webhook-url: ""
 
-  mute:
-    Ofensa grave:
-      1: 120    # 2 horas
-      2: 720    # 12 horas
-      3: 1440   # 24 horas (1 dia)
+  # Which events to send to Discord
+  notifications:
+    punishments: true
+    revocations: true
+    reports: true
+    appeals: true
 
-    Divulgação:
-      1: 240     # 4 horas
-      2: 1440    # 24 horas (1 dia)
-      3: 10080   # 7 dias
+  # Embed colors (hex color codes)
+  colors:
+    warn: "#FFCC00"
+    mute: "#FF9900"
+    kick: "#FF66CC"
+    ban: "#FF0000"
+    revoke: "#00CC00"
+    report: "#3399FF"
+    appeal: "#9900CC"
 
-    Provocação:
-      1: 120     # 2 horas
-      2: 360     # 6 horas
-      3: 1440    # 24 horas (1 dia)
+# Report settings
+reports:
+  cooldown: 300 # Seconds between reports of the same player
+  min-reason-length: 3
+  max-reason-length: 100
 
-    Racismo:
-      1: 1440    # 24 horas (1 dia)
-      2: 4320    # 3 dias
-      3: 10080   # 7 dias
+# Appeal settings
+appeals:
+  max-per-day: 3 # Maximum number of appeals a player can submit per day
+  ban-only: false # If true, only ban punishments can be appealed
 
-  ban:
-    Hack:
-      1: 10080    # 7 dias
-      2: 43200    # 30 dias
-      3: -1       # Permanente
+# Input validation
+validation:
+  proof-links:
+    enabled: true
+    allowed-domains:
+      - imgur.com
+      - prnt.sc
+      - gyazo.com
+      - youtube.com
+      - youtu.be
+      - streamable.com
+      - discord.com
 
-    Ameaça:
-      1: 1440     # 24 horas (1 dia)
-      2: 10080    # 7 dias
-      3: 43200    # 30 dias
-
-    Comportamento tóxico:
-      1: 4320     # 3 dias
-      2: 10080    # 7 dias
-      3: 43200    # 30 dias
-
-    Evasão de punição:
-      1: 4320     # 3 dias
-      2: 10080    # 7 dias
-      3: -1       # Permanente
-
-# Opções adicionais
-opcoes:
-  # Enviar mensagem de punição para todos os jogadores
-  broadcast-punicoes: true
-
-  # Verificação automática de punições expiradas
-  verificar-expiracoes: true
-
-  # Intervalo de verificação de punições expiradas (em minutos)
-  intervalo-verificacao: 5
-
-  # Templates para links de prova
-  templates-provas:
-    screenshot: "https://imgur.com/"
-    video: "https://youtu.be/"
-    discord: "https://discord.com/channels/"
-
-# Configurações de mensagens
-mensagens:
-  prefix: '&4[&cJudgementDay&4] &r'
-  sem_permissao: '&cVocê não tem permissão para usar este comando.'
-  jogador_nao_encontrado: '&cJogador não encontrado.'
-  punido_sucesso: '&aPunição aplicada com sucesso.'
-  revogado_sucesso: '&aPunição revogada com sucesso.'
-  id_invalido: '&cID de punição inválido.'
-  punir_uso: '&cUso: /punir <jogador>'
-  revogar_uso: '&cUso: /revogar <ID>'
-  historico_uso: '&cUso: /historico <jogador>'
-  reportar_uso: '&cUso: /reportar <jogador> <motivo>'
+# Integrations with other plugins
+integrations:
+  placeholder-api: true # Enable PlaceholderAPI support
+  discord-srv: false # Enable DiscordSRV support
